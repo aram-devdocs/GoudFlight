@@ -1,0 +1,19 @@
+{
+  "name": "ButtonInput",
+  "version": "1.0.0",
+  "description": "Button input library with shift register support",
+  "keywords": "button, input, shift register, piso",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/GoudFlight"
+  },
+  "authors": [
+    {
+      "name": "Your Name",
+      "email": "your.email@example.com"
+    }
+  ],
+  "license": "MIT",
+  "frameworks": "arduino",
+  "platforms": "espressif32"
+}

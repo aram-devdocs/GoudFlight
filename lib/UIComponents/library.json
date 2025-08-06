@@ -1,0 +1,23 @@
+{
+  "name": "UIComponents",
+  "version": "1.0.0",
+  "description": "UI components and screens library",
+  "keywords": "ui, screen, interface",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/GoudFlight"
+  },
+  "authors": [
+    {
+      "name": "Your Name",
+      "email": "your.email@example.com"
+    }
+  ],
+  "license": "MIT",
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "dependencies": {
+    "Display": "*",
+    "ButtonInput": "*"
+  }
+}
