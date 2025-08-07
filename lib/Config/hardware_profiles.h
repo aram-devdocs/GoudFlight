@@ -14,6 +14,7 @@ typedef enum {
     DISPLAY_DRIVER_SSD1306 = 0,
     DISPLAY_DRIVER_ST7735 = 1,
     DISPLAY_DRIVER_ILI9341 = 2,
+    DISPLAY_DRIVER_LCD1602_I2C = 3,
     DISPLAY_DRIVER_NONE = 0xFF
 } display_driver_type_t;
 
@@ -43,6 +44,13 @@ typedef struct {
             uint8_t rst_pin;
             uint8_t bl_pin;
         } st7735;
+        struct {
+            uint8_t columns;
+            uint8_t rows;
+            uint8_t i2c_address;
+            uint8_t sda_pin;
+            uint8_t scl_pin;
+        } lcd1602;
     } params;
 } display_hw_config_t;
 

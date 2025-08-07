@@ -18,7 +18,7 @@ typedef enum {
 typedef enum {
     HAL_BOARD_HANDHELD = 0,
     HAL_BOARD_DRONE = 1,
-    HAL_BOARD_BASE = 2
+    HAL_BOARD_BASE_STATION = 2
 } hal_board_type_t;
 
 typedef struct {
