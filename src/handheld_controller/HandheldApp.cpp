@@ -15,6 +15,8 @@ HandheldApp::HandheldApp()
     , menu_screen(nullptr)
     , flight_screen(nullptr)
     , settings_screen(nullptr)
+    , espnow_screen(nullptr)
+    , espnow_manager(nullptr)
     , current_screen(nullptr)
     , hardware({nullptr, nullptr}) {
 }
@@ -30,6 +32,12 @@ hal_status_t HandheldApp::onInitialize() {
     
     status = initInput();
     if (status != HAL_OK) return status;
+    
+    // Initialize ESP-NOW before screens so ESP-NOW screen can be created
+    status = initESPNow();
+    if (status != HAL_OK) {
+        LOG_WARNING("Handheld", "ESP-NOW init failed, continuing without it");
+    }
     
     status = initScreens();
     if (status != HAL_OK) return status;
@@ -88,6 +96,13 @@ hal_status_t HandheldApp::initScreens() {
     status = settings_screen->onInitialize();
     if (status != HAL_OK) return status;
     
+    if (espnow_manager) {
+        espnow_screen = new HandheldESPNowScreen(espnow_manager);
+        if (espnow_screen) {
+            espnow_screen->onInitialize();
+        }
+    }
+    
     LOG_INFO("Handheld", "Screens initialized");
     return HAL_OK;
 }
@@ -115,6 +130,9 @@ hal_status_t HandheldApp::initStates() {
     
     state_machine.registerState(AppState::STARTUP_SCREEN, "Startup",
         [this](uint32_t dt) { return handleStartupScreen(dt); });
+    
+    state_machine.registerState(AppState::ESPNOW_TEST, "ESPNow",
+        [this](uint32_t dt) { return handleESPNowTest(dt); });
     
     state_machine.registerState(AppState::BUTTON_TEST, "ButtonTest",
         [this](uint32_t dt) { return handleButtonTest(dt); });
@@ -145,6 +163,10 @@ hal_status_t HandheldApp::onUpdate(uint32_t delta_ms) {
         system_monitor->update(delta_ms);
     }
     
+    if (espnow_manager) {
+        espnow_manager->update(delta_ms);
+    }
+    
     if (input_handler) {
         input_handler->update(delta_ms);
     }
@@ -154,9 +176,10 @@ hal_status_t HandheldApp::onUpdate(uint32_t delta_ms) {
     if (current_screen && current_screen->isActive()) {
         current_screen->onUpdate(delta_ms);
         
-        if (current_screen->needsRedraw() && hardware.display && hardware.display->interface) {
+        if (current_screen->needsRedraw() && hardware.display) {
             current_screen->onDraw(hardware.display);
             current_screen->clearRedrawFlag();
+            // Note: For OLED, the display() call is done inside onDraw
         }
     }
     
@@ -171,6 +194,13 @@ hal_status_t HandheldApp::onShutdown() {
     delete menu_screen;
     delete flight_screen;
     delete settings_screen;
+    delete espnow_screen;
+    
+    if (espnow_manager) {
+        espnow_manager->shutdown();
+        delete espnow_manager;
+    }
+    
     delete input_handler;
     delete system_monitor;
     
@@ -193,7 +223,8 @@ hal_status_t HandheldApp::handleStartupScreen(uint32_t delta_ms) {
     }
     
     if (startup_screen && startup_screen->isComplete()) {
-        return state_machine.transitionTo(AppState::MENU);
+        LOG_INFO("Handheld", "Startup complete, transitioning to ESP-NOW test");
+        return state_machine.transitionTo(AppState::ESPNOW_TEST);
     }
     
     return HAL_OK;
@@ -301,4 +332,40 @@ void HandheldApp::handleScreenInput() {
     }
     
     prev_button_states = current_button_states;
+}
+
+hal_status_t HandheldApp::initESPNow() {
+    const char* base_mac_str = "30:ED:A0:A8:A8:28";
+    uint8_t base_mac[6];
+    
+    if (!ESPNowUtils::parseMacAddress(base_mac_str, base_mac)) {
+        LOG_ERROR("Handheld", "Failed to parse base station MAC address");
+        return HAL_ERROR;
+    }
+    
+    espnow_manager = new ESPNowManager(ESPNowConfig::ROLE_HANDHELD, base_mac);
+    if (!espnow_manager) {
+        LOG_ERROR("Handheld", "Failed to create ESP-NOW manager");
+        return HAL_ERROR;
+    }
+    
+    hal_status_t status = espnow_manager->init();
+    if (status != HAL_OK) {
+        LOG_ERROR("Handheld", "Failed to initialize ESP-NOW");
+        delete espnow_manager;
+        espnow_manager = nullptr;
+        return status;
+    }
+    
+    LOG_INFO("Handheld", "ESP-NOW initialized");
+    return HAL_OK;
+}
+
+hal_status_t HandheldApp::handleESPNowTest(uint32_t delta_ms) {
+    if (espnow_screen && current_screen != espnow_screen) {
+        LOG_INFO("Handheld", "Switching to ESP-NOW screen");
+        switchToScreen(espnow_screen);
+    }
+    
+    return HAL_OK;
 }

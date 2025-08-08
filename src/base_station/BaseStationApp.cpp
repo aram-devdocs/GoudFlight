@@ -12,6 +12,8 @@ BaseStationApp::BaseStationApp()
     , lcd_display(nullptr)
     , startup_screen(nullptr)
     , counter_screen(nullptr)
+    , espnow_screen(nullptr)
+    , espnow_manager(nullptr)
     , current_screen(nullptr) {
 }
 
@@ -19,13 +21,19 @@ hal_status_t BaseStationApp::onInitialize() {
     hal_status_t status = initHardware();
     if (status != HAL_OK) return status;
     
-    status = initDisplay();
-    if (status != HAL_OK) return status;
-    
     system_monitor = new SystemMonitor("BaseStation", LED_BUILTIN);
     if (!system_monitor) return HAL_ERROR;
     
     status = system_monitor->init();
+    if (status != HAL_OK) return status;
+    
+    // Initialize ESP-NOW before display so screens can be created
+    status = initESPNow();
+    if (status != HAL_OK) {
+        LOG_WARNING("BaseStation", "ESP-NOW init failed, continuing without it");
+    }
+    
+    status = initDisplay();
     if (status != HAL_OK) return status;
     
     status = initStates();
@@ -59,6 +67,13 @@ hal_status_t BaseStationApp::initDisplay() {
         return HAL_ERROR;
     }
     
+    if (espnow_manager) {
+        espnow_screen = new BaseStationESPNowScreen(espnow_manager);
+        if (espnow_screen) {
+            espnow_screen->onInitialize();
+        }
+    }
+    
     hal_status_t status = startup_screen->onInitialize();
     if (status != HAL_OK) return status;
     
@@ -75,6 +90,9 @@ hal_status_t BaseStationApp::initStates() {
     
     state_machine.registerState(AppState::STARTUP_SCREEN, "Startup",
         [this](uint32_t dt) { return handleStartupScreen(dt); });
+    
+    state_machine.registerState(AppState::ESPNOW_TEST, "ESPNow",
+        [this](uint32_t dt) { return handleESPNowTest(dt); });
     
     state_machine.registerState(AppState::IDLE, "Idle",
         [this](uint32_t dt) { return handleIdleState(dt); });
@@ -97,6 +115,10 @@ hal_status_t BaseStationApp::onStart() {
 hal_status_t BaseStationApp::onUpdate(uint32_t delta_ms) {
     if (system_monitor) {
         system_monitor->update(delta_ms);
+    }
+    
+    if (espnow_manager) {
+        espnow_manager->update(delta_ms);
     }
     
     if (current_screen && current_screen->isActive()) {
@@ -124,6 +146,17 @@ hal_status_t BaseStationApp::onShutdown() {
     if (counter_screen) {
         delete counter_screen;
         counter_screen = nullptr;
+    }
+    
+    if (espnow_screen) {
+        delete espnow_screen;
+        espnow_screen = nullptr;
+    }
+    
+    if (espnow_manager) {
+        espnow_manager->shutdown();
+        delete espnow_manager;
+        espnow_manager = nullptr;
     }
     
     if (display_controller) {
@@ -155,7 +188,8 @@ hal_status_t BaseStationApp::handleStartupScreen(uint32_t delta_ms) {
     }
     
     if (startup_screen && startup_screen->isComplete()) {
-        return state_machine.transitionTo(AppState::IDLE);
+        LOG_INFO("BaseStation", "Startup complete, transitioning to ESP-NOW test");
+        return state_machine.transitionTo(AppState::ESPNOW_TEST);
     }
     
     return HAL_OK;
@@ -194,4 +228,40 @@ void BaseStationApp::switchToScreen(AppScreen* screen) {
     
     current_screen = screen;
     current_screen->onEnter();
+}
+
+hal_status_t BaseStationApp::initESPNow() {
+    const char* handheld_mac_str = "30:ED:A0:A8:B5:70";
+    uint8_t handheld_mac[6];
+    
+    if (!ESPNowUtils::parseMacAddress(handheld_mac_str, handheld_mac)) {
+        LOG_ERROR("BaseStation", "Failed to parse handheld MAC address");
+        return HAL_ERROR;
+    }
+    
+    espnow_manager = new ESPNowManager(ESPNowConfig::ROLE_BASE_STATION, handheld_mac);
+    if (!espnow_manager) {
+        LOG_ERROR("BaseStation", "Failed to create ESP-NOW manager");
+        return HAL_ERROR;
+    }
+    
+    hal_status_t status = espnow_manager->init();
+    if (status != HAL_OK) {
+        LOG_ERROR("BaseStation", "Failed to initialize ESP-NOW");
+        delete espnow_manager;
+        espnow_manager = nullptr;
+        return status;
+    }
+    
+    LOG_INFO("BaseStation", "ESP-NOW initialized");
+    return HAL_OK;
+}
+
+hal_status_t BaseStationApp::handleESPNowTest(uint32_t delta_ms) {
+    if (espnow_screen && current_screen != espnow_screen) {
+        LOG_INFO("BaseStation", "Switching to ESP-NOW screen");
+        switchToScreen(espnow_screen);
+    }
+    
+    return HAL_OK;
 }

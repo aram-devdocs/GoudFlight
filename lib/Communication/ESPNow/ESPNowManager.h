@@ -1,0 +1,92 @@
+#ifndef ESPNOW_MANAGER_H
+#define ESPNOW_MANAGER_H
+
+#include <Arduino.h>
+#include <esp_now.h>
+#include <WiFi.h>
+#include "../../Core/StateManager.h"
+#include "../../Core/Logger.h"
+#include "../../HAL/Core/hal_types.h"
+#include "ESPNowMessage.h"
+#include "ESPNowConfig.h"
+
+class ESPNowManager {
+public:
+    enum class State : uint16_t {
+        UNINITIALIZED = 0,
+        SEARCHING,
+        PAIRING,
+        PAIRED,
+        ERROR
+    };
+    
+    struct Stats {
+        uint32_t messages_sent;
+        uint32_t messages_received;
+        uint32_t ping_count;
+        uint32_t pong_count;
+        uint32_t last_ping_time;
+        uint32_t last_pong_time;
+        uint32_t latency_ms;
+        int8_t rssi;
+    };
+    
+    ESPNowManager(ESPNowConfig::DeviceRole role, const uint8_t* peer_mac);
+    ~ESPNowManager();
+    
+    hal_status_t init();
+    hal_status_t update(uint32_t delta_ms);
+    hal_status_t shutdown();
+    
+    hal_status_t sendPing();
+    hal_status_t sendPong(uint32_t counter);
+    
+    State getState() const { return current_state; }
+    const char* getStateString() const;
+    const Stats& getStats() const { return stats; }
+    bool isPaired() const { return current_state == State::PAIRED; }
+    
+    void getMacAddress(uint8_t* mac) const;
+    void getPeerMacAddress(uint8_t* mac) const;
+    
+private:
+    ESPNowConfig::DeviceRole device_role;
+    State current_state;
+    uint8_t peer_mac_address[6];
+    uint8_t own_mac_address[6];
+    
+    StateMachine<State> state_machine;
+    Stats stats;
+    
+    uint32_t message_sequence;
+    uint32_t ping_counter;
+    uint32_t last_activity_time;
+    uint32_t state_timer;
+    
+    bool peer_added;
+    bool is_initialized;
+    
+    static ESPNowManager* instance;
+    static void onDataReceived(const uint8_t* mac_addr, const uint8_t* data, int len);
+    static void onDataSent(const uint8_t* mac_addr, esp_now_send_status_t status);
+    
+    hal_status_t handleUninitialized(uint32_t delta_ms);
+    hal_status_t handleSearching(uint32_t delta_ms);
+    hal_status_t handlePairing(uint32_t delta_ms);
+    hal_status_t handlePaired(uint32_t delta_ms);
+    hal_status_t handleError(uint32_t delta_ms);
+    
+    hal_status_t processMessage(const uint8_t* sender_mac, const ESPNowMessage* msg);
+    hal_status_t sendMessage(const ESPNowMessage& msg);
+    hal_status_t sendAnnounce();
+    hal_status_t sendPairRequest();
+    hal_status_t sendPairResponse();
+    
+    hal_status_t addPeer();
+    hal_status_t removePeer();
+    
+    bool isMacEqual(const uint8_t* mac1, const uint8_t* mac2) const;
+    void transitionToState(State new_state);
+};
+
+#endif

@@ -1,0 +1,13 @@
+{
+    "name": "ESPNow",
+    "version": "1.0.0",
+    "description": "ESP-NOW communication library for peer-to-peer messaging",
+    "dependencies": [
+        {
+            "name": "Core"
+        },
+        {
+            "name": "HAL"
+        }
+    ]
+}
