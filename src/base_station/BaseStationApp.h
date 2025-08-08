@@ -3,10 +3,13 @@
 
 #include "../../lib/Core/AppFramework.h"
 #include "../../lib/Core/StateManager.h"
+#include "../../lib/Core/AppScreen.h"
 #include "../../lib/Business/SystemMonitor.h"
 #include "../../lib/Business/DisplayController.h"
 #include "../../lib/HAL/Board/base_station_bsp.h"
 #include "../../lib/Config/base_station_config.h"
+#include "screens/StartupScreen.h"
+#include "screens/CounterScreen.h"
 
 class BaseStationApp : public AppFramework {
 public:
@@ -34,7 +37,9 @@ private:
     DisplayController* display_controller;
     display_instance_t* lcd_display;
     
-    uint32_t counter;
+    StartupScreen* startup_screen;
+    CounterScreen* counter_screen;
+    AppScreen* current_screen;
     
     hal_status_t initHardware();
     hal_status_t initDisplay();
@@ -46,9 +51,7 @@ private:
     hal_status_t handleMonitoringState(uint32_t delta_ms);
     hal_status_t handleErrorState(uint32_t delta_ms);
     
-    void drawStartupScreen(display_instance_t* display);
-    void drawStatusScreen(display_instance_t* display);
-    void updateStatusDisplay();
+    void switchToScreen(AppScreen* screen);
 };
 
 #endif

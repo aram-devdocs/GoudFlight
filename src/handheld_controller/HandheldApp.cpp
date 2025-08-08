@@ -9,10 +9,13 @@ HandheldApp::HandheldApp()
     : AppFramework("Handheld", HAL_BOARD_HANDHELD)
     , state_machine("HandheldSM")
     , system_monitor(nullptr)
-    , display_controller(nullptr)
     , input_handler(nullptr)
-    , button_manager(nullptr)
-    , main_menu(nullptr)
+    , startup_screen(nullptr)
+    , button_test_screen(nullptr)
+    , menu_screen(nullptr)
+    , flight_screen(nullptr)
+    , settings_screen(nullptr)
+    , current_screen(nullptr)
     , hardware({nullptr, nullptr}) {
 }
 
@@ -25,13 +28,10 @@ hal_status_t HandheldApp::onInitialize() {
     status = system_monitor->init();
     if (status != HAL_OK) return status;
     
-    status = initDisplay();
-    if (status != HAL_OK) return status;
-    
     status = initInput();
     if (status != HAL_OK) return status;
     
-    status = initMenu();
+    status = initScreens();
     if (status != HAL_OK) return status;
     
     status = initStates();
@@ -56,65 +56,39 @@ hal_status_t HandheldApp::initHardware() {
     return HAL_OK;
 }
 
-hal_status_t HandheldApp::initDisplay() {
+hal_status_t HandheldApp::initScreens() {
     if (!hardware.display || !hardware.display->interface) {
-        LOG_WARNING("Handheld", "No display available");
+        LOG_WARNING("Handheld", "No display available for screens");
         return HAL_OK;
     }
     
-    display_controller = new DisplayController(hardware.display);
-    if (!display_controller) return HAL_ERROR;
+    startup_screen = new HandheldStartupScreen();
+    button_test_screen = new HandheldButtonTestScreen();
+    menu_screen = new HandheldMenuScreen();
+    flight_screen = new HandheldFlightControlScreen();
+    settings_screen = new HandheldSettingsScreen();
     
-    hal_status_t status = display_controller->init();
+    if (!startup_screen || !button_test_screen || !menu_screen || 
+        !flight_screen || !settings_screen) {
+        return HAL_ERROR;
+    }
+    
+    hal_status_t status = startup_screen->onInitialize();
     if (status != HAL_OK) return status;
     
-    DisplayController::Screen startup = {
-        .name = "Startup",
-        .onDraw = [this](display_instance_t* d) { drawStartupScreen(d); },
-        .onEnter = nullptr,
-        .onExit = nullptr,
-        .refresh_interval_ms = 100
-    };
+    status = button_test_screen->onInitialize();
+    if (status != HAL_OK) return status;
     
-    DisplayController::Screen button_test = {
-        .name = "ButtonTest",
-        .onDraw = [this](display_instance_t* d) { drawButtonTestScreen(d); },
-        .onEnter = nullptr,
-        .onExit = nullptr,
-        .refresh_interval_ms = Constants::Timing::DISPLAY_UPDATE_INTERVAL_MS
-    };
+    status = menu_screen->onInitialize();
+    if (status != HAL_OK) return status;
     
-    DisplayController::Screen menu = {
-        .name = "Menu",
-        .onDraw = [this](display_instance_t* d) { drawMenuScreen(d); },
-        .onEnter = nullptr,
-        .onExit = nullptr,
-        .refresh_interval_ms = 100
-    };
+    status = flight_screen->onInitialize();
+    if (status != HAL_OK) return status;
     
-    DisplayController::Screen flight = {
-        .name = "Flight",
-        .onDraw = [this](display_instance_t* d) { drawFlightControlScreen(d); },
-        .onEnter = nullptr,
-        .onExit = nullptr,
-        .refresh_interval_ms = 50
-    };
+    status = settings_screen->onInitialize();
+    if (status != HAL_OK) return status;
     
-    DisplayController::Screen settings = {
-        .name = "Settings",
-        .onDraw = [this](display_instance_t* d) { drawSettingsScreen(d); },
-        .onEnter = nullptr,
-        .onExit = nullptr,
-        .refresh_interval_ms = 100
-    };
-    
-    display_controller->registerScreen(0, startup);
-    display_controller->registerScreen(1, button_test);
-    display_controller->registerScreen(2, menu);
-    display_controller->registerScreen(3, flight);
-    display_controller->registerScreen(4, settings);
-    
-    LOG_INFO("Handheld", "Display initialized");
+    LOG_INFO("Handheld", "Screens initialized");
     return HAL_OK;
 }
 
@@ -130,52 +104,8 @@ hal_status_t HandheldApp::initInput() {
     hal_status_t status = input_handler->init();
     if (status != HAL_OK) return status;
     
-    input_handler->registerGlobalCallback(
-        [this](uint8_t ch, input_event_t ev) { handleButtonPress(ch, ev); });
-    
-    button_manager = new ButtonManager(input_handler);
-    button_manager->mapButton(ButtonManager::ButtonId::UP, 0);
-    button_manager->mapButton(ButtonManager::ButtonId::DOWN, 1);
-    button_manager->mapButton(ButtonManager::ButtonId::LEFT, 2);
-    button_manager->mapButton(ButtonManager::ButtonId::RIGHT, 3);
-    button_manager->mapButton(ButtonManager::ButtonId::SELECT, 4);
-    button_manager->mapButton(ButtonManager::ButtonId::BACK, 5);
-    button_manager->mapButton(ButtonManager::ButtonId::MENU, 6);
-    button_manager->mapButton(ButtonManager::ButtonId::ACTION, 7);
-    
     LOG_INFO("Handheld", "Input initialized with %u channels", 
              hardware.input->interface->get_channel_count(hardware.input));
-    return HAL_OK;
-}
-
-hal_status_t HandheldApp::initMenu() {
-    main_menu = new MenuScreen("Main Menu", 4);
-    if (!main_menu) return HAL_ERROR;
-    
-    main_menu->addItem({
-        .label = "Button Test",
-        .onSelect = [this]() { state_machine.transitionTo(AppState::BUTTON_TEST); },
-        .enabled = true
-    });
-    
-    main_menu->addItem({
-        .label = "Flight Control",
-        .onSelect = [this]() { state_machine.transitionTo(AppState::FLIGHT_CONTROL); },
-        .enabled = true
-    });
-    
-    main_menu->addItem({
-        .label = "Settings",
-        .onSelect = [this]() { state_machine.transitionTo(AppState::SETTINGS); },
-        .enabled = true
-    });
-    
-    main_menu->addItem({
-        .label = "System Info",
-        .onSelect = [this]() { SystemInfo::printSystemInfo("Handheld"); },
-        .enabled = true
-    });
-    
     return HAL_OK;
 }
 
@@ -219,8 +149,15 @@ hal_status_t HandheldApp::onUpdate(uint32_t delta_ms) {
         input_handler->update(delta_ms);
     }
     
-    if (display_controller) {
-        display_controller->update(delta_ms);
+    handleScreenInput();
+    
+    if (current_screen && current_screen->isActive()) {
+        current_screen->onUpdate(delta_ms);
+        
+        if (current_screen->needsRedraw() && hardware.display && hardware.display->interface) {
+            current_screen->onDraw(hardware.display);
+            current_screen->clearRedrawFlag();
+        }
     }
     
     return state_machine.update(delta_ms);
@@ -229,10 +166,12 @@ hal_status_t HandheldApp::onUpdate(uint32_t delta_ms) {
 hal_status_t HandheldApp::onShutdown() {
     LOG_INFO("Handheld", "Shutting down");
     
-    delete main_menu;
-    delete button_manager;
+    delete startup_screen;
+    delete button_test_screen;
+    delete menu_screen;
+    delete flight_screen;
+    delete settings_screen;
     delete input_handler;
-    delete display_controller;
     delete system_monitor;
     
     handheld_bsp_deinit(&hardware);
@@ -249,175 +188,117 @@ hal_status_t HandheldApp::handleInitState(uint32_t delta_ms) {
 }
 
 hal_status_t HandheldApp::handleStartupScreen(uint32_t delta_ms) {
-    if (display_controller && display_controller->getCurrentScreen() != 0) {
-        display_controller->switchToScreen(0);
+    if (current_screen != startup_screen) {
+        switchToScreen(startup_screen);
     }
     
-    if (state_machine.getStateTime() >= Constants::System::STARTUP_SCREEN_DURATION_MS) {
-        return state_machine.transitionTo(AppState::BUTTON_TEST);
+    if (startup_screen && startup_screen->isComplete()) {
+        return state_machine.transitionTo(AppState::MENU);
     }
     
     return HAL_OK;
 }
 
 hal_status_t HandheldApp::handleButtonTest(uint32_t delta_ms) {
-    if (display_controller && display_controller->getCurrentScreen() != 1) {
-        display_controller->switchToScreen(1);
+    if (current_screen != button_test_screen) {
+        switchToScreen(button_test_screen);
     }
     
-    static uint32_t last_debug = 0;
-    uint32_t current_time = millis();
-    
-    if (current_time - last_debug >= Constants::Timing::DEBUG_PRINT_INTERVAL_MS) {
-        if (input_handler) {
-            char hex_str[16];
-            DataFormatter::formatHex(hex_str, sizeof(hex_str), 
-                                    ~input_handler->getRawState() & 0xFF, 2);
-            LOG_DEBUG("ButtonTest", "Buttons: %s", hex_str);
-        }
-        last_debug = current_time;
+    if (input_handler && input_handler->isPressed(7)) {
+        return state_machine.transitionTo(AppState::MENU);
     }
     
     return HAL_OK;
 }
 
 hal_status_t HandheldApp::handleMenuState(uint32_t delta_ms) {
-    if (display_controller && display_controller->getCurrentScreen() != 2) {
-        display_controller->switchToScreen(2);
+    if (current_screen != menu_screen) {
+        switchToScreen(menu_screen);
+    }
+    
+    if (menu_screen && menu_screen->getMenu() && input_handler && input_handler->isPressed(2)) {
+        int selected = menu_screen->getMenu()->getCurrentItem();
+        switch (selected) {
+            case 0:
+                return state_machine.transitionTo(AppState::FLIGHT_CONTROL);
+            case 1:
+                return state_machine.transitionTo(AppState::BUTTON_TEST);
+            case 2:
+                return state_machine.transitionTo(AppState::SETTINGS);
+        }
     }
     
     return HAL_OK;
 }
 
 hal_status_t HandheldApp::handleFlightControl(uint32_t delta_ms) {
-    if (display_controller && display_controller->getCurrentScreen() != 3) {
-        display_controller->switchToScreen(3);
+    if (current_screen != flight_screen) {
+        switchToScreen(flight_screen);
+    }
+    
+    if (input_handler && input_handler->isPressed(7)) {
+        return state_machine.transitionTo(AppState::MENU);
     }
     
     return HAL_OK;
 }
 
 hal_status_t HandheldApp::handleSettings(uint32_t delta_ms) {
-    if (display_controller && display_controller->getCurrentScreen() != 4) {
-        display_controller->switchToScreen(4);
+    if (current_screen != settings_screen) {
+        switchToScreen(settings_screen);
+    }
+    
+    if (input_handler && input_handler->isPressed(7)) {
+        return state_machine.transitionTo(AppState::MENU);
     }
     
     return HAL_OK;
 }
 
 hal_status_t HandheldApp::handleErrorState(uint32_t delta_ms) {
-    if (display_controller) {
-        display_controller->clear();
-        display_controller->drawText(30, 20, "ERROR", 2);
-        display_controller->refresh();
+    if (hardware.display && hardware.display->interface) {
+        hardware.display->interface->clear(hardware.display);
+        DisplayController::drawCenteredText(hardware.display, 30, "ERROR", 2);
+        hardware.display->interface->refresh(hardware.display);
     }
     
     return HAL_OK;
 }
 
-void HandheldApp::drawStartupScreen(display_instance_t* display) {
-    if (!display || !display->interface) return;
+void HandheldApp::switchToScreen(AppScreen* screen) {
+    if (!screen) return;
     
-    DisplayController::drawCenteredText(display, 10, "GoudFlight", 2);
-    DisplayController::drawCenteredText(display, 35, "HAL v1.0", 1);
-    DisplayController::drawCenteredText(display, 50, "Initializing...", 1);
-}
-
-void HandheldApp::drawButtonTestScreen(display_instance_t* display) {
-    if (!display || !display->interface) return;
-    
-    const display_interface_t* iface = display->interface;
-    
-    iface->clear(display);
-    
-    DisplayController::drawHeader(display, "Button Test");
-    
-    if (hardware.input && hardware.input->interface) {
-        uint8_t num_buttons = hardware.input->interface->get_channel_count(hardware.input);
-        if (num_buttons > 8) num_buttons = 8;
-        
-        for (uint8_t i = 0; i < num_buttons; i++) {
-            bool pressed = input_handler ? input_handler->isPressed(i) : false;
-            
-            display_rect_t button_rect = {
-                .x = static_cast<int16_t>(10 + i * 14),
-                .y = 20,
-                .width = 12,
-                .height = 12
-            };
-            
-            iface->draw_rect(display, &button_rect, DISPLAY_COLOR_WHITE, pressed);
-            
-            display_point_t cursor = {
-                .x = static_cast<int16_t>(button_rect.x + 3),
-                .y = static_cast<int16_t>(button_rect.y + 16)
-            };
-            iface->set_text_cursor(display, &cursor);
-            
-            char num_str[2] = {static_cast<char>('1' + i), '\0'};
-            iface->write_text(display, num_str, 1);
-        }
-        
-        if (input_handler) {
-            char hex_str[16];
-            DataFormatter::formatHex(hex_str, sizeof(hex_str), 
-                                    ~input_handler->getRawState() & 0xFF, 2);
-            
-            display_point_t cursor = {5, 50};
-            iface->set_text_cursor(display, &cursor);
-            iface->write_text(display, "Data: ", 1);
-            iface->write_text(display, hex_str, 1);
-        }
+    if (current_screen && current_screen != screen) {
+        current_screen->onExit();
     }
     
-    iface->refresh(display);
+    current_screen = screen;
+    current_screen->onEnter();
 }
 
-void HandheldApp::drawMenuScreen(display_instance_t* display) {
-    if (main_menu && display) {
-        main_menu->draw(display);
-        display->interface->refresh(display);
-    }
-}
-
-void HandheldApp::drawFlightControlScreen(display_instance_t* display) {
-    if (!display || !display->interface) return;
+void HandheldApp::handleScreenInput() {
+    if (!current_screen || !input_handler) return;
     
-    DisplayController::drawHeader(display, "Flight Control");
-    DisplayController::drawCenteredText(display, 30, "Ready", 1);
-    DisplayController::drawFooter(display, "Press BACK");
-}
-
-void HandheldApp::drawSettingsScreen(display_instance_t* display) {
-    if (!display || !display->interface) return;
-    
-    DisplayController::drawHeader(display, "Settings");
-    DisplayController::drawCenteredText(display, 30, "Coming Soon", 1);
-    DisplayController::drawFooter(display, "Press BACK");
-}
-
-void HandheldApp::handleButtonPress(uint8_t channel, input_event_t event) {
-    if (event == INPUT_EVENT_PRESSED) {
-        LOG_DEBUG("Input", "Button %u pressed", channel + 1);
+    if (hardware.input) {
+        current_screen->onInput(hardware.input);
     }
     
-    if (state_machine.isInState(AppState::MENU) && main_menu) {
-        if (event == INPUT_EVENT_RELEASED) {
-            switch (channel) {
-                case 0: main_menu->selectPrevious(); break;
-                case 1: main_menu->selectNext(); break;
-                case 4: main_menu->activateSelected(); break;
-                case 5: state_machine.transitionTo(AppState::BUTTON_TEST); break;
+    static uint8_t prev_button_states = 0;
+    uint8_t current_button_states = 0;
+    
+    for (uint8_t i = 0; i < 8; i++) {
+        if (input_handler->isPressed(i)) {
+            current_button_states |= (1 << i);
+            
+            if (!(prev_button_states & (1 << i))) {
+                current_screen->onButtonPress(i);
+            }
+        } else {
+            if (prev_button_states & (1 << i)) {
+                current_screen->onButtonRelease(i);
             }
         }
-    } else if (state_machine.isInState(AppState::BUTTON_TEST)) {
-        if (channel == 6 && event == INPUT_EVENT_RELEASED) {
-            state_machine.transitionTo(AppState::MENU);
-        }
-    } else if (state_machine.isInState(AppState::FLIGHT_CONTROL) || 
-               state_machine.isInState(AppState::SETTINGS)) {
-        if (channel == 5 && event == INPUT_EVENT_RELEASED) {
-            state_machine.transitionTo(AppState::MENU);
-        }
     }
+    
+    prev_button_states = current_button_states;
 }

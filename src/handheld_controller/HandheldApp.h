@@ -3,10 +3,16 @@
 
 #include "../../lib/Core/AppFramework.h"
 #include "../../lib/Core/StateManager.h"
+#include "../../lib/Core/AppScreen.h"
 #include "../../lib/Business/SystemMonitor.h"
 #include "../../lib/Business/DisplayController.h"
 #include "../../lib/Business/InputHandler.h"
 #include "../../lib/HAL/Board/handheld_bsp.h"
+#include "screens/StartupScreen.h"
+#include "screens/ButtonTestScreen.h"
+#include "screens/MenuScreen.h"
+#include "screens/FlightControlScreen.h"
+#include "screens/SettingsScreen.h"
 
 class HandheldApp : public AppFramework {
 public:
@@ -33,10 +39,14 @@ protected:
 private:
     StateMachine<AppState> state_machine;
     SystemMonitor* system_monitor;
-    DisplayController* display_controller;
     InputHandler* input_handler;
-    ButtonManager* button_manager;
-    MenuScreen* main_menu;
+    
+    HandheldStartupScreen* startup_screen;
+    HandheldButtonTestScreen* button_test_screen;
+    HandheldMenuScreen* menu_screen;
+    HandheldFlightControlScreen* flight_screen;
+    HandheldSettingsScreen* settings_screen;
+    AppScreen* current_screen;
     
     handheld_hardware_t hardware;
     
@@ -44,7 +54,10 @@ private:
     hal_status_t initDisplay();
     hal_status_t initInput();
     hal_status_t initStates();
-    hal_status_t initMenu();
+    hal_status_t initScreens();
+    
+    void switchToScreen(AppScreen* screen);
+    void handleScreenInput();
     
     hal_status_t handleInitState(uint32_t delta_ms);
     hal_status_t handleStartupScreen(uint32_t delta_ms);
@@ -54,11 +67,6 @@ private:
     hal_status_t handleSettings(uint32_t delta_ms);
     hal_status_t handleErrorState(uint32_t delta_ms);
     
-    void drawStartupScreen(display_instance_t* display);
-    void drawButtonTestScreen(display_instance_t* display);
-    void drawMenuScreen(display_instance_t* display);
-    void drawFlightControlScreen(display_instance_t* display);
-    void drawSettingsScreen(display_instance_t* display);
     
     void processButtonEvents();
     void handleButtonPress(uint8_t channel, input_event_t event);

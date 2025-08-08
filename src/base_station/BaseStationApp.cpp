@@ -10,7 +10,9 @@ BaseStationApp::BaseStationApp()
     , system_monitor(nullptr)
     , display_controller(nullptr)
     , lcd_display(nullptr)
-    , counter(0) {
+    , startup_screen(nullptr)
+    , counter_screen(nullptr)
+    , current_screen(nullptr) {
 }
 
 hal_status_t BaseStationApp::onInitialize() {
@@ -50,30 +52,18 @@ hal_status_t BaseStationApp::initDisplay() {
         return HAL_OK;
     }
     
-    display_controller = new DisplayController(lcd_display);
-    if (!display_controller) return HAL_ERROR;
+    startup_screen = new StartupScreen();
+    counter_screen = new CounterScreen();
     
-    hal_status_t status = display_controller->init();
+    if (!startup_screen || !counter_screen) {
+        return HAL_ERROR;
+    }
+    
+    hal_status_t status = startup_screen->onInitialize();
     if (status != HAL_OK) return status;
     
-    DisplayController::Screen startup_screen = {
-        .name = "Startup",
-        .onDraw = [this](display_instance_t* d) { drawStartupScreen(d); },
-        .onEnter = nullptr,
-        .onExit = nullptr,
-        .refresh_interval_ms = 1000
-    };
-    
-    DisplayController::Screen status_screen = {
-        .name = "Status",
-        .onDraw = [this](display_instance_t* d) { drawStatusScreen(d); },
-        .onEnter = nullptr,
-        .onExit = nullptr,
-        .refresh_interval_ms = Constants::Timing::DISPLAY_UPDATE_INTERVAL_MS
-    };
-    
-    display_controller->registerScreen(0, startup_screen);
-    display_controller->registerScreen(1, status_screen);
+    status = counter_screen->onInitialize();
+    if (status != HAL_OK) return status;
     
     LOG_INFO("BaseStation", "Display initialized");
     return HAL_OK;
@@ -109,8 +99,15 @@ hal_status_t BaseStationApp::onUpdate(uint32_t delta_ms) {
         system_monitor->update(delta_ms);
     }
     
-    if (display_controller) {
-        display_controller->update(delta_ms);
+    if (current_screen && current_screen->isActive()) {
+        current_screen->onUpdate(delta_ms);
+        
+        if (current_screen->needsRedraw() && lcd_display && lcd_display->interface) {
+            lcd_display->interface->clear(lcd_display);
+            current_screen->onDraw(lcd_display);
+            current_screen->clearRedrawFlag();
+            lcd_display->interface->refresh(lcd_display);
+        }
     }
     
     return state_machine.update(delta_ms);
@@ -118,6 +115,16 @@ hal_status_t BaseStationApp::onUpdate(uint32_t delta_ms) {
 
 hal_status_t BaseStationApp::onShutdown() {
     LOG_INFO("BaseStation", "Shutting down");
+    
+    if (startup_screen) {
+        delete startup_screen;
+        startup_screen = nullptr;
+    }
+    
+    if (counter_screen) {
+        delete counter_screen;
+        counter_screen = nullptr;
+    }
     
     if (display_controller) {
         delete display_controller;
@@ -143,11 +150,11 @@ hal_status_t BaseStationApp::handleInitState(uint32_t delta_ms) {
 }
 
 hal_status_t BaseStationApp::handleStartupScreen(uint32_t delta_ms) {
-    if (display_controller && display_controller->getCurrentScreen() != 0) {
-        display_controller->switchToScreen(0);
+    if (current_screen != startup_screen) {
+        switchToScreen(startup_screen);
     }
     
-    if (state_machine.getStateTime() >= Constants::System::STARTUP_SCREEN_DURATION_MS) {
+    if (startup_screen && startup_screen->isComplete()) {
         return state_machine.transitionTo(AppState::IDLE);
     }
     
@@ -155,17 +162,8 @@ hal_status_t BaseStationApp::handleStartupScreen(uint32_t delta_ms) {
 }
 
 hal_status_t BaseStationApp::handleIdleState(uint32_t delta_ms) {
-    if (display_controller && display_controller->getCurrentScreen() != 1) {
-        display_controller->switchToScreen(1);
-    }
-    
-    static uint32_t last_counter_update = 0;
-    uint32_t current_time = millis();
-    
-    if (current_time - last_counter_update >= 1000) {
-        counter++;
-        updateStatusDisplay();
-        last_counter_update = current_time;
+    if (current_screen != counter_screen) {
+        switchToScreen(counter_screen);
     }
     
     return HAL_OK;
@@ -176,49 +174,24 @@ hal_status_t BaseStationApp::handleMonitoringState(uint32_t delta_ms) {
 }
 
 hal_status_t BaseStationApp::handleErrorState(uint32_t delta_ms) {
-    if (display_controller) {
-        display_controller->clear();
-        display_controller->drawText(0, 0, "ERROR", 2);
-        display_controller->refresh();
+    if (lcd_display && lcd_display->interface) {
+        lcd_display->interface->clear(lcd_display);
+        display_point_t cursor = {0, 0};
+        lcd_display->interface->set_text_cursor(lcd_display, &cursor);
+        lcd_display->interface->write_text(lcd_display, "ERROR", 2);
+        lcd_display->interface->refresh(lcd_display);
     }
     
     return HAL_OK;
 }
 
-void BaseStationApp::drawStartupScreen(display_instance_t* display) {
-    if (!display || !display->interface) return;
+void BaseStationApp::switchToScreen(AppScreen* screen) {
+    if (!screen) return;
     
-    display_point_t cursor = {0, 0};
-    display->interface->set_text_cursor(display, &cursor);
-    display->interface->write_text(display, "Base Station", 1);
+    if (current_screen && current_screen != screen) {
+        current_screen->onExit();
+    }
     
-    cursor.y = 1;
-    display->interface->set_text_cursor(display, &cursor);
-    display->interface->write_text(display, "Initializing...", 1);
-}
-
-void BaseStationApp::drawStatusScreen(display_instance_t* display) {
-    if (!display || !display->interface) return;
-    
-    display_point_t cursor = {0, 0};
-    display->interface->set_text_cursor(display, &cursor);
-    display->interface->write_text(display, "Base Station OK", 1);
-    
-    char time_str[32];
-    DataFormatter::formatUptime(time_str, sizeof(time_str), counter);
-    
-    cursor.y = 1;
-    display->interface->set_text_cursor(display, &cursor);
-    display->interface->write_text(display, time_str, 1);
-}
-
-void BaseStationApp::updateStatusDisplay() {
-    if (!lcd_display || !lcd_display->interface) return;
-    
-    char status_str[64];
-    snprintf(status_str, sizeof(status_str), "Time: %u s", (unsigned)counter);
-    
-    display_point_t cursor = {0, 1};
-    lcd_display->interface->set_text_cursor(lcd_display, &cursor);
-    lcd_display->interface->write_text(lcd_display, status_str, 1);
+    current_screen = screen;
+    current_screen->onEnter();
 }
