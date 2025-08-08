@@ -8,6 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `./upload.sh [handheld|drone|base]` - Upload to specific board
 
 
+
 ## Design Principles & Architecture
 
 ### Core Architectural Patterns
@@ -25,6 +26,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Consistent state management via StateMachine<T> template
 - Centralized logging via Logger class with severity levels
 - System monitoring via SystemMonitor with health checks
+
+**Screen-Based Architecture**: Modular UI/UX design pattern where:
+- Each screen is a self-contained unit with its own state and behavior
+- Screens follow a consistent lifecycle pattern for initialization, activation, updates, and cleanup
+- Input events are routed to the active screen for localized handling
+- Application logic is separated from presentation logic
+- Screen transitions are managed by the application orchestrator
+- Common UI patterns are abstracted into reusable components
+- Screen state is isolated to prevent side effects between different UI contexts
 
 **Message-Passing Architecture**: Use asynchronous, event-driven communication between modules. Prefer publish-subscribe patterns over direct coupling. This enables:
 - Module independence and testability
@@ -62,6 +72,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Communication timeouts for external interfaces
 
 ## Development Workflow
+
 
 ### Feature Implementation Process
 
