@@ -124,7 +124,11 @@ static void show_startup_screen() {
 }
 
 void setup() {
-    Serial.begin(9600);
+    Serial.begin(115200);
+    while (!Serial && millis() < 5000) {
+        ; // Wait for serial port to connect or timeout after 5 seconds
+    }
+    delay(1000); // Give serial monitor time to fully initialize
     Serial.println(F("=== GoudFlight Handheld Controller ==="));
     Serial.println(F("Starting with HAL Architecture..."));
     

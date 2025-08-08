@@ -8,6 +8,10 @@ static display_instance_t* lcd_display = nullptr;
 
 void setup() {
     Serial.begin(115200);
+    while (!Serial && millis() < 5000) {
+        ; // Wait for serial port to connect or timeout after 5 seconds
+    }
+    delay(1000); // Give serial monitor time to fully initialize
     pinMode(LED_BUILTIN, OUTPUT);
     
     Serial.println("============================");

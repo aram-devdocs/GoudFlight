@@ -6,7 +6,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - `./build.sh [handheld|drone|base|all]` - Build specific environment or all
 - `./upload.sh [handheld|drone|base]` - Upload to specific board
-- `./monitor.sh [handheld|drone|base]` - Monitor serial output
 - `/home/aram/.platformio/penv/bin/platformio test` - Run unit tests
 - `/home/aram/.platformio/penv/bin/platformio check` - Static code analysis
 
