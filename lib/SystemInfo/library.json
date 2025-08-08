@@ -1,0 +1,17 @@
+{
+    "name": "SystemInfo",
+    "version": "1.0.0",
+    "description": "System information utility for ESP32/ESP8266",
+    "authors": [
+        {
+            "name": "GoudFlight Team",
+            "maintainer": true
+        }
+    ],
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/yourusername/GoudFlight.git"
+    },
+    "frameworks": "arduino",
+    "platforms": ["espressif32", "espressif8266"]
+}

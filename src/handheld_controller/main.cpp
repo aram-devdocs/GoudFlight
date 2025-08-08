@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include "../../lib/HAL/Board/handheld_bsp.h"
 #include "../../lib/HAL/Core/hal_errors.h"
+#include "../../lib/SystemInfo/system_info.h"
 
 static handheld_hardware_t hardware = {nullptr, nullptr};
 
@@ -131,6 +132,8 @@ void setup() {
     delay(1000); // Give serial monitor time to fully initialize
     Serial.println(F("=== GoudFlight Handheld Controller ==="));
     Serial.println(F("Starting with HAL Architecture..."));
+    
+    SystemInfo::printSystemInfo("Handheld Controller");
     
     hal_status_t status = handheld_bsp_init(&hardware);
     if (status != HAL_OK) {

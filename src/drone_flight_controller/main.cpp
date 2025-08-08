@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include "../../lib/SystemInfo/system_info.h"
 
 #define LED_BUILTIN 2
 
@@ -8,8 +9,9 @@ void setup() {
     
     Serial.println("============================");
     Serial.println("Drone Flight Controller");
-    Serial.println("Hello World!");
     Serial.println("============================");
+    
+    SystemInfo::printSystemInfo("Drone Flight Controller");
 }
 
 void loop() {

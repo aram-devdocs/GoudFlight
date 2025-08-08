@@ -3,6 +3,7 @@
 #include "../../lib/Config/base_station_config.h"
 #include "../../lib/HAL/Display/display_interface.h"
 #include "../../lib/HAL/Core/hal_errors.h"
+#include "../../lib/SystemInfo/system_info.h"
 
 static display_instance_t* lcd_display = nullptr;
 
@@ -17,6 +18,8 @@ void setup() {
     Serial.println("============================");
     Serial.println("Base Station Starting...");
     Serial.println("============================");
+    
+    SystemInfo::printSystemInfo("Base Station");
     
     hal_status_t result = base_station_bsp_init(&base_station_profile.header);
     if (result != HAL_OK) {
