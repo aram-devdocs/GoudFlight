@@ -6,8 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - `./build.sh [handheld|drone|base|all]` - Build specific environment or all
 - `./upload.sh [handheld|drone|base]` - Upload to specific board
-- `/home/aram/.platformio/penv/bin/platformio test` - Run unit tests
-- `/home/aram/.platformio/penv/bin/platformio check` - Static code analysis
+
 
 ## Design Principles & Architecture
 
@@ -15,9 +14,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Layered Architecture**: Maintain strict separation between:
 - Hardware abstraction layer (HAL) - isolates hardware dependencies
-- Application logic layer - business rules and state management  
+- Core Framework layer - application lifecycle, logging, state management
+- Business Logic layer - reusable components (monitoring, display, input, formatting)
+- Application layer - application-specific implementations with minimal main.cpp
 - Communication layer - inter-module and external messaging
 - Presentation layer - UI/UX and user feedback
+
+**Application Framework Pattern**: All applications extend AppFramework base class with:
+- Lifecycle hooks: onInitialize(), onStart(), onUpdate(), onShutdown(), onError()
+- Consistent state management via StateMachine<T> template
+- Centralized logging via Logger class with severity levels
+- System monitoring via SystemMonitor with health checks
 
 **Message-Passing Architecture**: Use asynchronous, event-driven communication between modules. Prefer publish-subscribe patterns over direct coupling. This enables:
 - Module independence and testability

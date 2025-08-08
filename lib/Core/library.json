@@ -1,0 +1,22 @@
+{
+    "name": "Core",
+    "version": "1.0.0",
+    "description": "Core framework for GoudFlight applications",
+    "keywords": "framework, state-machine, logging",
+    "repository": {
+        "type": "git",
+        "url": ""
+    },
+    "authors": [
+        {
+            "name": "GoudFlight Team",
+            "email": "",
+            "maintainer": true
+        }
+    ],
+    "license": "MIT",
+    "homepage": "",
+    "dependencies": {},
+    "frameworks": "arduino",
+    "platforms": "espressif32"
+}
