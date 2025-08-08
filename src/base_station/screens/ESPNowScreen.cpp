@@ -115,6 +115,9 @@ void BaseStationESPNowScreen::drawConnectionStatus(display_instance_t* display) 
         case ESPNowManager::State::PAIRED:
             status = "ESP-NOW: PAIRED!";
             break;
+        case ESPNowManager::State::RECONNECTING:
+            status = "ESP-NOW: RECONN";
+            break;
         case ESPNowManager::State::ERROR:
             status = "ESP-NOW: ERROR";
             break;

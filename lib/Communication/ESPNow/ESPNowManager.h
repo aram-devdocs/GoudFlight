@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include <esp_now.h>
 #include <WiFi.h>
+#include <Preferences.h>
 #include "../../Core/StateManager.h"
 #include "../../Core/Logger.h"
 #include "../../HAL/Core/hal_types.h"
@@ -17,6 +18,7 @@ public:
         SEARCHING,
         PAIRING,
         PAIRED,
+        RECONNECTING,
         ERROR
     };
     
@@ -40,6 +42,8 @@ public:
     
     hal_status_t sendPing();
     hal_status_t sendPong(uint32_t counter);
+    hal_status_t sendDisconnect();
+    hal_status_t disconnect();  // User-initiated disconnect
     
     State getState() const { return current_state; }
     const char* getStateString() const;
@@ -48,6 +52,20 @@ public:
     
     void getMacAddress(uint8_t* mac) const;
     void getPeerMacAddress(uint8_t* mac) const;
+    
+    // Connection info methods
+    uint32_t getConnectionUptime() const;
+    uint32_t getLastActivityTime() const { return last_activity_time; }
+    bool isConnected() const { return current_state == State::PAIRED; }
+    bool isConnecting() const { return current_state == State::PAIRING || current_state == State::RECONNECTING; }
+    float getPacketLossRate() const;
+    
+    // Persistence methods
+    bool loadSavedPeer();
+    void savePeer();
+    void clearSavedPeer();
+    bool hasAutoReconnect() const;
+    void setAutoReconnect(bool enabled);
     
 private:
     ESPNowConfig::DeviceRole device_role;
@@ -62,10 +80,13 @@ private:
     uint32_t ping_counter;
     uint32_t last_activity_time;
     uint32_t state_timer;
+    uint32_t connection_start_time;
     
     bool peer_added;
     bool is_initialized;
+    bool auto_reconnect;
     
+    Preferences preferences;
     static ESPNowManager* instance;
     static void onDataReceived(const uint8_t* mac_addr, const uint8_t* data, int len);
     static void onDataSent(const uint8_t* mac_addr, esp_now_send_status_t status);
@@ -74,6 +95,7 @@ private:
     hal_status_t handleSearching(uint32_t delta_ms);
     hal_status_t handlePairing(uint32_t delta_ms);
     hal_status_t handlePaired(uint32_t delta_ms);
+    hal_status_t handleReconnecting(uint32_t delta_ms);
     hal_status_t handleError(uint32_t delta_ms);
     
     hal_status_t processMessage(const uint8_t* sender_mac, const ESPNowMessage* msg);

@@ -10,8 +10,10 @@ ESPNowManager::ESPNowManager(ESPNowConfig::DeviceRole role, const uint8_t* peer_
     , ping_counter(0)
     , last_activity_time(0)
     , state_timer(0)
+    , connection_start_time(0)
     , peer_added(false)
-    , is_initialized(false) {
+    , is_initialized(false)
+    , auto_reconnect(true) {
     
     memcpy(peer_mac_address, peer_mac, 6);
     memset(&stats, 0, sizeof(stats));
@@ -26,6 +28,14 @@ ESPNowManager::~ESPNowManager() {
 
 hal_status_t ESPNowManager::init() {
     LOG_INFO("ESPNow", "Initializing ESP-NOW");
+    
+    // Try to load saved peer if we don't have one
+    uint8_t zero_mac[6] = {0};
+    if (memcmp(peer_mac_address, zero_mac, 6) == 0) {
+        if (loadSavedPeer()) {
+            LOG_INFO("ESPNow", "Using saved peer MAC address");
+        }
+    }
     
     WiFi.mode(WIFI_STA);
     WiFi.disconnect();
@@ -54,6 +64,8 @@ hal_status_t ESPNowManager::init() {
         [this](uint32_t dt) { return handlePairing(dt); });
     state_machine.registerState(State::PAIRED, "PAIRED",
         [this](uint32_t dt) { return handlePaired(dt); });
+    state_machine.registerState(State::RECONNECTING, "RECONNECTING",
+        [this](uint32_t dt) { return handleReconnecting(dt); });
     state_machine.registerState(State::ERROR, "ERROR",
         [this](uint32_t dt) { return handleError(dt); });
     
@@ -147,8 +159,51 @@ hal_status_t ESPNowManager::handlePaired(uint32_t delta_ms) {
     if (millis() - last_activity_time > ESPNowConfig::CONNECTION_TIMEOUT_MS) {
         LOG_WARNING("ESPNow", "Connection timeout after %u ms of inactivity", 
                     millis() - last_activity_time);
+        
+        // Try to reconnect if auto-reconnect is enabled
+        if (auto_reconnect) {
+            transitionToState(State::RECONNECTING);
+        } else {
+            removePeer();
+            transitionToState(State::SEARCHING);
+        }
+    }
+    
+    return HAL_OK;
+}
+
+hal_status_t ESPNowManager::handleReconnecting(uint32_t delta_ms) {
+    static uint32_t retry_count = 0;
+    static uint32_t last_retry = 0;
+    
+    // Retry sending messages periodically
+    if (millis() - last_retry > 1000) {
+        if (device_role == ESPNowConfig::ROLE_BASE_STATION) {
+            sendAnnounce();
+        } else {
+            // Handheld tries to send pair request directly
+            if (addPeer() == HAL_OK) {
+                sendPairRequest();
+            }
+        }
+        last_retry = millis();
+        retry_count++;
+        LOG_INFO("ESPNow", "Reconnection attempt %u", retry_count);
+    }
+    
+    // Give up after 10 attempts and go back to searching
+    if (retry_count > 10) {
+        LOG_WARNING("ESPNow", "Reconnection failed after %u attempts", retry_count);
+        retry_count = 0;
         removePeer();
         transitionToState(State::SEARCHING);
+    }
+    
+    // Check if we got a response that indicates successful reconnection
+    if (millis() - last_activity_time < 1000) {
+        LOG_INFO("ESPNow", "Reconnection successful!");
+        retry_count = 0;
+        transitionToState(State::PAIRED);
     }
     
     return HAL_OK;
@@ -258,6 +313,35 @@ hal_status_t ESPNowManager::sendPong(uint32_t counter) {
     return sendMessage(msg);
 }
 
+hal_status_t ESPNowManager::sendDisconnect() {
+    ESPNowMessage msg;
+    msg.type = ESPNowConfig::MSG_DISCONNECT;
+    msg.role = device_role;
+    msg.sequence = message_sequence++;
+    msg.timestamp = millis();
+    
+    return sendMessage(msg);
+}
+
+hal_status_t ESPNowManager::disconnect() {
+    if (current_state != State::PAIRED && current_state != State::PAIRING) {
+        return HAL_OK;  // Already disconnected
+    }
+    
+    LOG_INFO("ESPNow", "User-initiated disconnect");
+    
+    // Send disconnect message to peer if we're paired
+    if (current_state == State::PAIRED) {
+        sendDisconnect();
+    }
+    
+    // Clean up and go back to searching
+    removePeer();
+    transitionToState(State::SEARCHING);
+    
+    return HAL_OK;
+}
+
 hal_status_t ESPNowManager::processMessage(const uint8_t* sender_mac, const ESPNowMessage* msg) {
     if (!msg->isValid()) {
         LOG_WARNING("ESPNow", "Invalid message received");
@@ -330,6 +414,14 @@ hal_status_t ESPNowManager::processMessage(const uint8_t* sender_mac, const ESPN
             }
             break;
             
+        case ESPNowConfig::MSG_DISCONNECT:
+            if (isMacEqual(sender_mac, peer_mac_address)) {
+                LOG_INFO("ESPNow", "Disconnect received from peer");
+                removePeer();
+                transitionToState(State::SEARCHING);
+            }
+            break;
+            
         default:
             LOG_WARNING("ESPNow", "Unknown message type: %d", msg->type);
             break;
@@ -396,7 +488,13 @@ void ESPNowManager::transitionToState(State new_state) {
         stats.ping_count = 0;
         stats.pong_count = 0;
         last_activity_time = millis();
+        connection_start_time = millis();
         LOG_INFO("ESPNow", "Connection established with peer!");
+        
+        // Save the peer for future reconnection
+        if (auto_reconnect) {
+            savePeer();
+        }
     }
     
     state_timer = 0;
@@ -408,6 +506,7 @@ const char* ESPNowManager::getStateString() const {
         case State::SEARCHING: return "SEARCHING";
         case State::PAIRING: return "PAIRING";
         case State::PAIRED: return "PAIRED";
+        case State::RECONNECTING: return "RECONNECTING";
         case State::ERROR: return "ERROR";
         default: return "UNKNOWN";
     }
@@ -436,4 +535,78 @@ void ESPNowManager::onDataSent(const uint8_t* mac_addr, esp_now_send_status_t st
                     mac_addr[0], mac_addr[1], mac_addr[2],
                     mac_addr[3], mac_addr[4], mac_addr[5]);
     }
+}
+
+bool ESPNowManager::loadSavedPeer() {
+    preferences.begin("espnow", true);  // Read-only mode
+    
+    bool has_saved = preferences.getBool("has_saved", false);
+    if (!has_saved) {
+        preferences.end();
+        return false;
+    }
+    
+    size_t len = preferences.getBytes("peer_mac", peer_mac_address, 6);
+    auto_reconnect = preferences.getBool("auto_reconnect", true);
+    preferences.end();
+    
+    if (len == 6) {
+        LOG_INFO("ESPNow", "Loaded saved peer: %02X:%02X:%02X:%02X:%02X:%02X",
+                 peer_mac_address[0], peer_mac_address[1], peer_mac_address[2],
+                 peer_mac_address[3], peer_mac_address[4], peer_mac_address[5]);
+        return true;
+    }
+    
+    return false;
+}
+
+void ESPNowManager::savePeer() {
+    preferences.begin("espnow", false);  // Read-write mode
+    preferences.putBool("has_saved", true);
+    preferences.putBytes("peer_mac", peer_mac_address, 6);
+    preferences.putBool("auto_reconnect", auto_reconnect);
+    preferences.end();
+    
+    LOG_INFO("ESPNow", "Saved peer MAC to preferences");
+}
+
+void ESPNowManager::clearSavedPeer() {
+    preferences.begin("espnow", false);
+    preferences.clear();
+    preferences.end();
+    
+    LOG_INFO("ESPNow", "Cleared saved peer from preferences");
+}
+
+bool ESPNowManager::hasAutoReconnect() const {
+    return auto_reconnect;
+}
+
+void ESPNowManager::setAutoReconnect(bool enabled) {
+    auto_reconnect = enabled;
+    
+    preferences.begin("espnow", false);
+    preferences.putBool("auto_reconnect", enabled);
+    preferences.end();
+    
+    LOG_INFO("ESPNow", "Auto-reconnect set to: %s", enabled ? "enabled" : "disabled");
+}
+
+uint32_t ESPNowManager::getConnectionUptime() const {
+    if (current_state != State::PAIRED || connection_start_time == 0) {
+        return 0;
+    }
+    return millis() - connection_start_time;
+}
+
+float ESPNowManager::getPacketLossRate() const {
+    uint32_t total_sent = stats.ping_count;
+    uint32_t total_received = stats.pong_count;
+    
+    if (total_sent == 0) {
+        return 0.0f;
+    }
+    
+    uint32_t lost = (total_sent > total_received) ? (total_sent - total_received) : 0;
+    return (float)lost / (float)total_sent * 100.0f;
 }

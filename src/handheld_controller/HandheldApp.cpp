@@ -223,8 +223,8 @@ hal_status_t HandheldApp::handleStartupScreen(uint32_t delta_ms) {
     }
     
     if (startup_screen && startup_screen->isComplete()) {
-        LOG_INFO("Handheld", "Startup complete, transitioning to ESP-NOW test");
-        return state_machine.transitionTo(AppState::ESPNOW_TEST);
+        LOG_INFO("Handheld", "Startup complete, transitioning to menu");
+        return state_machine.transitionTo(AppState::MENU);
     }
     
     return HAL_OK;
@@ -253,9 +253,12 @@ hal_status_t HandheldApp::handleMenuState(uint32_t delta_ms) {
             case 0:
                 return state_machine.transitionTo(AppState::FLIGHT_CONTROL);
             case 1:
-                return state_machine.transitionTo(AppState::BUTTON_TEST);
+                return state_machine.transitionTo(AppState::ESPNOW_TEST);
             case 2:
+                return state_machine.transitionTo(AppState::BUTTON_TEST);
+            case 3:
                 return state_machine.transitionTo(AppState::SETTINGS);
+            // case 4 would be System Info - not implemented yet
         }
     }
     
@@ -365,6 +368,12 @@ hal_status_t HandheldApp::handleESPNowTest(uint32_t delta_ms) {
     if (espnow_screen && current_screen != espnow_screen) {
         LOG_INFO("Handheld", "Switching to ESP-NOW screen");
         switchToScreen(espnow_screen);
+    }
+    
+    // Button 7 is typically the back button
+    if (input_handler && input_handler->isPressed(7)) {
+        LOG_INFO("Handheld", "Returning to menu from ESP-NOW screen");
+        return state_machine.transitionTo(AppState::MENU);
     }
     
     return HAL_OK;

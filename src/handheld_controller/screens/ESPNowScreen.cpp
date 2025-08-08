@@ -63,6 +63,9 @@ void HandheldESPNowScreen::onDraw(display_instance_t* display) {
             case ESPNowManager::State::PAIRED:
                 status = "CONNECTED";
                 break;
+            case ESPNowManager::State::RECONNECTING:
+                status = "RECONNECTING";
+                break;
             case ESPNowManager::State::ERROR:
                 status = "ERROR";
                 break;

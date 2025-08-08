@@ -70,15 +70,19 @@ void HandheldMenuScreen::initMenuItems() {
         LOG_INFO("Menu", "Flight Control selected");
     });
     
-    menu->addItem("Button Test", 2, [this]() {
+    menu->addItem("ESP-NOW Status", 2, [this]() {
+        LOG_INFO("Menu", "ESP-NOW Status selected");
+    });
+    
+    menu->addItem("Button Test", 3, [this]() {
         LOG_INFO("Menu", "Button Test selected");
     });
     
-    menu->addItem("Settings", 3, [this]() {
+    menu->addItem("Settings", 4, [this]() {
         LOG_INFO("Menu", "Settings selected");
     });
     
-    menu->addItem("System Info", 4, [this]() {
+    menu->addItem("System Info", 5, [this]() {
         LOG_INFO("Menu", "System Info selected");
     });
 }
