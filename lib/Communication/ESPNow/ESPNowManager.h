@@ -39,6 +39,9 @@ public:
     hal_status_t init();
     hal_status_t update(uint32_t delta_ms);
     hal_status_t shutdown();
+    hal_status_t startConnection();  // Manual connection start
+    hal_status_t stopConnection();   // Manual connection stop
+    bool isSearching() const { return current_state == State::SEARCHING; }
     
     hal_status_t sendPing();
     hal_status_t sendPong(uint32_t counter);

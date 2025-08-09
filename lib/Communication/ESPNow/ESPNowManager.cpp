@@ -13,7 +13,7 @@ ESPNowManager::ESPNowManager(ESPNowConfig::DeviceRole role, const uint8_t* peer_
     , connection_start_time(0)
     , peer_added(false)
     , is_initialized(false)
-    , auto_reconnect(true) {
+    , auto_reconnect(role == ESPNowConfig::ROLE_BASE_STATION) {  // Only base station auto-reconnects
     
     memcpy(peer_mac_address, peer_mac, 6);
     memset(&stats, 0, sizeof(stats));
@@ -70,7 +70,16 @@ hal_status_t ESPNowManager::init() {
         [this](uint32_t dt) { return handleError(dt); });
     
     is_initialized = true;
-    transitionToState(State::SEARCHING);
+    
+    // Don't automatically start searching for handheld devices
+    // Base station still auto-starts
+    if (device_role == ESPNowConfig::ROLE_BASE_STATION) {
+        transitionToState(State::SEARCHING);
+    } else {
+        // Handheld stays in UNINITIALIZED until manually started
+        current_state = State::UNINITIALIZED;
+        LOG_INFO("ESPNow", "Handheld ESP-NOW initialized but not started (manual mode)");
+    }
     
     return HAL_OK;
 }
@@ -164,8 +173,15 @@ hal_status_t ESPNowManager::handlePaired(uint32_t delta_ms) {
         if (auto_reconnect) {
             transitionToState(State::RECONNECTING);
         } else {
+            // For handheld in manual mode, go back to UNINITIALIZED
             removePeer();
-            transitionToState(State::SEARCHING);
+            if (device_role == ESPNowConfig::ROLE_HANDHELD) {
+                current_state = State::UNINITIALIZED;
+                state_machine.transitionTo(State::UNINITIALIZED);
+                LOG_INFO("ESPNow", "Handheld disconnected - manual reconnect required");
+            } else {
+                transitionToState(State::SEARCHING);
+            }
         }
     }
     
@@ -338,6 +354,47 @@ hal_status_t ESPNowManager::disconnect() {
     // Clean up and go back to searching
     removePeer();
     transitionToState(State::SEARCHING);
+    
+    return HAL_OK;
+}
+
+hal_status_t ESPNowManager::startConnection() {
+    if (!is_initialized) {
+        LOG_ERROR("ESPNow", "Cannot start connection - not initialized");
+        return HAL_ERROR;
+    }
+    
+    if (current_state != State::UNINITIALIZED) {
+        LOG_WARNING("ESPNow", "Connection already started (state: %s)", getStateString());
+        return HAL_OK;
+    }
+    
+    LOG_INFO("ESPNow", "Starting ESP-NOW connection search");
+    transitionToState(State::SEARCHING);
+    
+    return HAL_OK;
+}
+
+hal_status_t ESPNowManager::stopConnection() {
+    if (!is_initialized) {
+        return HAL_OK;
+    }
+    
+    LOG_INFO("ESPNow", "Stopping ESP-NOW connection");
+    
+    // Send disconnect if we're connected
+    if (current_state == State::PAIRED) {
+        sendDisconnect();
+    }
+    
+    // Clean up
+    removePeer();
+    
+    // Go back to uninitialized state (manual mode)
+    current_state = State::UNINITIALIZED;
+    state_machine.transitionTo(State::UNINITIALIZED);
+    
+    LOG_INFO("ESPNow", "Connection stopped");
     
     return HAL_OK;
 }

@@ -13,6 +13,7 @@ public:
     void onEnter() override;
     void onUpdate(uint32_t delta_ms) override;
     void onDraw(display_instance_t* display) override;
+    void onButtonPress(uint8_t button_id) override;
     
 private:
     ESPNowManager* espnow_manager;
