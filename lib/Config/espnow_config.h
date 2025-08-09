@@ -5,14 +5,22 @@
 
 namespace ESPNowGlobalConfig {
     // MAC addresses for ESP-NOW pairing
-    // These should be configured per deployment
-    // Format: {0xXX, 0xXX, 0xXX, 0xXX, 0xXX, 0xXX}
+    // These are loaded from .env file at build time
+    // Create a .env file from .env.template and set your MAC addresses
     
-    // Base station MAC address
-    static constexpr uint8_t BASE_STATION_MAC[6] = {0x30, 0xED, 0xA0, 0xA8, 0xA8, 0x28};
+    #ifndef BASE_STATION_MAC_ARRAY
+        #error "BASE_STATION_MAC_ADDRESS not defined! Please create a .env file with MAC addresses. See .env.template for format."
+    #endif
     
-    // Handheld controller MAC address
-    static constexpr uint8_t HANDHELD_MAC[6] = {0x30, 0xED, 0xA0, 0xA8, 0xB5, 0x70};
+    #ifndef HANDHELD_MAC_ARRAY
+        #error "HANDHELD_MAC_ADDRESS not defined! Please create a .env file with MAC addresses. See .env.template for format."
+    #endif
+    
+    // Base station MAC address (from .env file)
+    static constexpr uint8_t BASE_STATION_MAC[6] = BASE_STATION_MAC_ARRAY;
+    
+    // Handheld controller MAC address (from .env file)
+    static constexpr uint8_t HANDHELD_MAC[6] = HANDHELD_MAC_ARRAY;
     
     // Broadcast MAC for discovery
     static constexpr uint8_t BROADCAST_MAC[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};

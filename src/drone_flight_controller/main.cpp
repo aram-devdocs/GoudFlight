@@ -31,7 +31,6 @@ void setup() {
 }
 
 void loop() {
-    static uint32_t last_loop_time = 0;
     uint32_t loop_start = micros();
     
     if (app) {

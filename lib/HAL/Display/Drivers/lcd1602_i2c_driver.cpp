@@ -277,8 +277,26 @@ static const display_interface_t g_lcd1602_interface = {
     .set_contrast = lcd1602_set_contrast
 };
 
-static lcd1602_driver_data_t g_lcd1602_driver_data = {0};
-static display_instance_t g_lcd1602_instance = {0};
+// Properly initialize all struct members to avoid warnings
+static lcd1602_driver_data_t g_lcd1602_driver_data = {
+    .lcd = nullptr,
+    .config = {
+        .i2c_address = 0,
+        .sda_pin = 0,
+        .scl_pin = 0,
+        .columns = 0,
+        .rows = 0
+    },
+    .cursor_x = 0,
+    .cursor_y = 0
+};
+
+static display_instance_t g_lcd1602_instance = {
+    .interface = nullptr,
+    .driver_data = nullptr,
+    .constraints = nullptr,
+    .initialized = false
+};
 
 static const hal_resource_constraints_t g_lcd1602_constraints = {
     .max_stack_bytes = 512,
