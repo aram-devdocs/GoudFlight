@@ -10,6 +10,9 @@
 #include "../../HAL/Core/hal_types.h"
 #include "ESPNowMessage.h"
 #include "ESPNowConfig.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#include <queue>
 
 class ESPNowManager {
 public:
@@ -103,7 +106,18 @@ private:
     MessageCallback button_data_callback;
     MessageCallback input_event_callback;
     
+    // Thread-safe message queue
+    struct QueuedMessage {
+        uint8_t sender_mac[6];
+        ESPNowMessage message;
+    };
+    std::queue<QueuedMessage> message_queue;
+    SemaphoreHandle_t queue_mutex;
+    SemaphoreHandle_t state_mutex;
+    
+    // Instance management with proper synchronization
     static ESPNowManager* instance;
+    static SemaphoreHandle_t instance_mutex;
     static void onDataReceived(const uint8_t* mac_addr, const uint8_t* data, int len);
     static void onDataSent(const uint8_t* mac_addr, esp_now_send_status_t status);
     
@@ -124,6 +138,14 @@ private:
     
     bool isMacEqual(const uint8_t* mac1, const uint8_t* mac2) const;
     void transitionToState(State new_state);
+    
+    // Thread-safe message processing
+    void queueMessage(const uint8_t* sender_mac, const ESPNowMessage* msg);
+    void processMessageQueue();
+    
+    // Instance registration/unregistration
+    static void registerInstance(ESPNowManager* mgr);
+    static void unregisterInstance(ESPNowManager* mgr);
 };
 
 #endif

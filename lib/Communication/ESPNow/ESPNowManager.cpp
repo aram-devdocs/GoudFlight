@@ -1,6 +1,7 @@
 #include "ESPNowManager.h"
 
 ESPNowManager* ESPNowManager::instance = nullptr;
+SemaphoreHandle_t ESPNowManager::instance_mutex = nullptr;
 
 ESPNowManager::ESPNowManager(ESPNowConfig::DeviceRole role, const uint8_t* peer_mac)
     : device_role(role)
@@ -21,12 +22,32 @@ ESPNowManager::ESPNowManager(ESPNowConfig::DeviceRole role, const uint8_t* peer_
     memcpy(peer_mac_address, peer_mac, 6);
     memset(&stats, 0, sizeof(stats));
     memset(own_mac_address, 0, 6);
-    instance = this;
+    
+    // Initialize mutexes
+    queue_mutex = xSemaphoreCreateMutex();
+    state_mutex = xSemaphoreCreateMutex();
+    
+    // Initialize static mutex if needed
+    if (instance_mutex == nullptr) {
+        instance_mutex = xSemaphoreCreateMutex();
+    }
+    
+    registerInstance(this);
 }
 
 ESPNowManager::~ESPNowManager() {
     shutdown();
-    instance = nullptr;
+    unregisterInstance(this);
+    
+    // Clean up mutexes
+    if (queue_mutex) {
+        vSemaphoreDelete(queue_mutex);
+        queue_mutex = nullptr;
+    }
+    if (state_mutex) {
+        vSemaphoreDelete(state_mutex);
+        state_mutex = nullptr;
+    }
 }
 
 hal_status_t ESPNowManager::init() {
@@ -90,8 +111,18 @@ hal_status_t ESPNowManager::init() {
 hal_status_t ESPNowManager::update(uint32_t delta_ms) {
     if (!is_initialized) return HAL_ERROR;
     
-    state_timer += delta_ms;
-    return state_machine.update(delta_ms);
+    // Process queued messages from ISR context
+    processMessageQueue();
+    
+    // Thread-safe state update
+    if (xSemaphoreTake(state_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        state_timer += delta_ms;
+        hal_status_t result = state_machine.update(delta_ms);
+        xSemaphoreGive(state_mutex);
+        return result;
+    }
+    
+    return HAL_ERROR;
 }
 
 hal_status_t ESPNowManager::shutdown() {
@@ -140,7 +171,10 @@ hal_status_t ESPNowManager::handlePairing(uint32_t delta_ms) {
     if (state_timer > 3000) {
         LOG_WARNING("ESPNow", "Pairing timeout, back to searching");
         removePeer();
-        transitionToState(State::SEARCHING);
+        // Don't call transitionToState here - return the new state instead
+        current_state = State::SEARCHING;
+        state_machine.transitionTo(State::SEARCHING);
+        state_timer = 0;
         return HAL_OK;
     }
     
@@ -181,9 +215,12 @@ hal_status_t ESPNowManager::handlePaired(uint32_t delta_ms) {
             if (device_role == ESPNowConfig::ROLE_HANDHELD) {
                 current_state = State::UNINITIALIZED;
                 state_machine.transitionTo(State::UNINITIALIZED);
+                state_timer = 0;
                 LOG_INFO("ESPNow", "Handheld disconnected - manual reconnect required");
             } else {
-                transitionToState(State::SEARCHING);
+                current_state = State::SEARCHING;
+                state_machine.transitionTo(State::SEARCHING);
+                state_timer = 0;
             }
         }
     }
@@ -215,14 +252,19 @@ hal_status_t ESPNowManager::handleReconnecting(uint32_t delta_ms) {
         LOG_WARNING("ESPNow", "Reconnection failed after %u attempts", retry_count);
         retry_count = 0;
         removePeer();
-        transitionToState(State::SEARCHING);
+        current_state = State::SEARCHING;
+        state_machine.transitionTo(State::SEARCHING);
+        state_timer = 0;
     }
     
     // Check if we got a response that indicates successful reconnection
     if (millis() - last_activity_time < 1000) {
         LOG_INFO("ESPNow", "Reconnection successful!");
         retry_count = 0;
-        transitionToState(State::PAIRED);
+        current_state = State::PAIRED;
+        state_machine.transitionTo(State::PAIRED);
+        state_timer = 0;
+        connection_start_time = millis();
     }
     
     return HAL_OK;
@@ -230,12 +272,30 @@ hal_status_t ESPNowManager::handleReconnecting(uint32_t delta_ms) {
 
 hal_status_t ESPNowManager::handleError(uint32_t delta_ms) {
     if (state_timer > 5000) {
-        transitionToState(State::SEARCHING);
+        current_state = State::SEARCHING;
+        state_machine.transitionTo(State::SEARCHING);
+        state_timer = 0;
     }
     return HAL_OK;
 }
 
 hal_status_t ESPNowManager::sendMessage(const ESPNowMessage& msg) {
+    // Defensive checks
+    if (!is_initialized) {
+        LOG_ERROR("ESPNow", "Cannot send message - not initialized");
+        return HAL_ERROR;
+    }
+    
+    // Allow sending in SEARCHING state for pairing messages
+    bool is_pairing_msg = (msg.type == ESPNowConfig::MSG_PAIR_REQUEST || 
+                          msg.type == ESPNowConfig::MSG_PAIR_RESPONSE ||
+                          msg.type == ESPNowConfig::MSG_ANNOUNCE);
+    
+    if (!is_pairing_msg && current_state != State::PAIRED && current_state != State::PAIRING) {
+        LOG_WARNING("ESPNow", "Cannot send message in state %s", getStateString());
+        return HAL_ERROR;
+    }
+    
     if (!peer_added) {
         LOG_DEBUG("ESPNow", "Adding peer before sending message");
         if (addPeer() != HAL_OK) {
@@ -264,6 +324,7 @@ hal_status_t ESPNowManager::sendAnnounce() {
     msg.role = device_role;
     msg.sequence = message_sequence++;
     msg.timestamp = millis();
+    msg.updateCRC();
     
     uint8_t broadcast_mac[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
     esp_now_peer_info_t peer_info = {};
@@ -290,6 +351,7 @@ hal_status_t ESPNowManager::sendPairRequest() {
     msg.role = device_role;
     msg.sequence = message_sequence++;
     msg.timestamp = millis();
+    msg.updateCRC();
     
     return sendMessage(msg);
 }
@@ -300,6 +362,7 @@ hal_status_t ESPNowManager::sendPairResponse() {
     msg.role = device_role;
     msg.sequence = message_sequence++;
     msg.timestamp = millis();
+    msg.updateCRC();
     
     return sendMessage(msg);
 }
@@ -338,6 +401,7 @@ hal_status_t ESPNowManager::sendDisconnect() {
     msg.role = device_role;
     msg.sequence = message_sequence++;
     msg.timestamp = millis();
+    msg.updateCRC();
     
     return sendMessage(msg);
 }
@@ -350,8 +414,9 @@ hal_status_t ESPNowManager::disconnect() {
     LOG_INFO("ESPNow", "User-initiated disconnect");
     
     // Send disconnect message to peer if we're paired
-    if (current_state == State::PAIRED) {
+    if (current_state == State::PAIRED && peer_added) {
         sendDisconnect();
+        delay(10);  // Give time for message to send
     }
     
     // Clean up and go back to searching
@@ -403,8 +468,15 @@ hal_status_t ESPNowManager::stopConnection() {
 }
 
 hal_status_t ESPNowManager::processMessage(const uint8_t* sender_mac, const ESPNowMessage* msg) {
+    // Defensive checks
+    if (!msg || !sender_mac) {
+        LOG_ERROR("ESPNow", "Null pointer in processMessage");
+        return HAL_ERROR;
+    }
+    
     if (!msg->isValid()) {
-        LOG_WARNING("ESPNow", "Invalid message received");
+        LOG_WARNING("ESPNow", "Invalid message received (magic=%02X, CRC check failed)", msg->magic);
+        stats.messages_received++;  // Count as received but invalid
         return HAL_ERROR;
     }
     
@@ -423,8 +495,8 @@ hal_status_t ESPNowManager::processMessage(const uint8_t* sender_mac, const ESPN
                     // Add peer first
                     if (addPeer() == HAL_OK) {
                         LOG_INFO("ESPNow", "Handheld sending pair request");
-                        sendPairRequest();
                         transitionToState(State::PAIRING);
+                        sendPairRequest();  // Send after state transition
                     }
                 }
                 // Base station stays in SEARCHING until it gets a pair request
@@ -483,19 +555,19 @@ hal_status_t ESPNowManager::processMessage(const uint8_t* sender_mac, const ESPN
             break;
             
         case ESPNowConfig::MSG_SCREEN_SYNC:
-            if (screen_sync_callback) {
+            if (screen_sync_callback && current_state == State::PAIRED) {
                 screen_sync_callback(msg);
             }
             break;
             
         case ESPNowConfig::MSG_BUTTON_DATA:
-            if (button_data_callback) {
+            if (button_data_callback && current_state == State::PAIRED) {
                 button_data_callback(msg);
             }
             break;
             
         case ESPNowConfig::MSG_INPUT_EVENT:
-            if (input_event_callback) {
+            if (input_event_callback && current_state == State::PAIRED) {
                 input_event_callback(msg);
             }
             break;
@@ -510,6 +582,13 @@ hal_status_t ESPNowManager::processMessage(const uint8_t* sender_mac, const ESPN
 
 hal_status_t ESPNowManager::addPeer() {
     if (peer_added) return HAL_OK;
+    
+    // Validate MAC address
+    uint8_t zero_mac[6] = {0};
+    if (memcmp(peer_mac_address, zero_mac, 6) == 0) {
+        LOG_ERROR("ESPNow", "Cannot add peer with zero MAC address");
+        return HAL_ERROR;
+    }
     
     // Check if peer already exists
     if (esp_now_is_peer_exist(peer_mac_address)) {
@@ -546,6 +625,17 @@ bool ESPNowManager::isMacEqual(const uint8_t* mac1, const uint8_t* mac2) const {
 }
 
 void ESPNowManager::transitionToState(State new_state) {
+    // Don't try to acquire mutex if we're already holding it (called from handler)
+    TaskHandle_t mutex_holder = xSemaphoreGetMutexHolder(state_mutex);
+    bool need_mutex = (mutex_holder != xTaskGetCurrentTaskHandle());
+    
+    if (need_mutex) {
+        if (xSemaphoreTake(state_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+            LOG_ERROR("ESPNow", "Failed to acquire state mutex for transition");
+            return;
+        }
+    }
+    
     const char* old_state = getStateString();
     current_state = new_state;
     state_machine.transitionTo(new_state);
@@ -576,6 +666,10 @@ void ESPNowManager::transitionToState(State new_state) {
     }
     
     state_timer = 0;
+    
+    if (need_mutex) {
+        xSemaphoreGive(state_mutex);
+    }
 }
 
 const char* ESPNowManager::getStateString() const {
@@ -599,20 +693,43 @@ void ESPNowManager::getPeerMacAddress(uint8_t* mac) const {
 }
 
 void ESPNowManager::onDataReceived(const uint8_t* mac_addr, const uint8_t* data, int len) {
-    if (!instance || len != sizeof(ESPNowMessage)) return;
+    // Safely access instance with mutex
+    if (xSemaphoreTake(instance_mutex, 0) != pdTRUE) {
+        // Can't wait in ISR context, drop message
+        return;
+    }
+    
+    if (!instance || len != sizeof(ESPNowMessage)) {
+        xSemaphoreGive(instance_mutex);
+        return;
+    }
     
     const ESPNowMessage* msg = reinterpret_cast<const ESPNowMessage*>(data);
-    instance->processMessage(mac_addr, msg);
+    
+    // Queue message for processing in main context
+    instance->queueMessage(mac_addr, msg);
+    
+    xSemaphoreGive(instance_mutex);
 }
 
 void ESPNowManager::onDataSent(const uint8_t* mac_addr, esp_now_send_status_t status) {
-    if (!instance) return;
+    // Safely access instance with mutex
+    if (xSemaphoreTake(instance_mutex, 0) != pdTRUE) {
+        return;
+    }
+    
+    if (!instance) {
+        xSemaphoreGive(instance_mutex);
+        return;
+    }
     
     if (status != ESP_NOW_SEND_SUCCESS) {
         LOG_WARNING("ESPNow", "Send failed to %02X:%02X:%02X:%02X:%02X:%02X",
                     mac_addr[0], mac_addr[1], mac_addr[2],
                     mac_addr[3], mac_addr[4], mac_addr[5]);
     }
+    
+    xSemaphoreGive(instance_mutex);
 }
 
 bool ESPNowManager::loadSavedPeer() {
@@ -687,4 +804,61 @@ float ESPNowManager::getPacketLossRate() const {
     
     uint32_t lost = (total_sent > total_received) ? (total_sent - total_received) : 0;
     return (float)lost / (float)total_sent * 100.0f;
+}
+
+void ESPNowManager::registerInstance(ESPNowManager* mgr) {
+    if (xSemaphoreTake(instance_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        instance = mgr;
+        xSemaphoreGive(instance_mutex);
+    }
+}
+
+void ESPNowManager::unregisterInstance(ESPNowManager* mgr) {
+    if (xSemaphoreTake(instance_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        if (instance == mgr) {
+            instance = nullptr;
+        }
+        xSemaphoreGive(instance_mutex);
+    }
+}
+
+void ESPNowManager::queueMessage(const uint8_t* sender_mac, const ESPNowMessage* msg) {
+    if (!msg || !sender_mac) return;
+    
+    if (xSemaphoreTake(queue_mutex, 0) == pdTRUE) {
+        // Limit queue size to prevent memory issues
+        if (message_queue.size() < 32) {
+            QueuedMessage queued;
+            memcpy(queued.sender_mac, sender_mac, 6);
+            memcpy(&queued.message, msg, sizeof(ESPNowMessage));
+            message_queue.push(queued);
+        }
+        xSemaphoreGive(queue_mutex);
+    }
+}
+
+void ESPNowManager::processMessageQueue() {
+    // Process up to 5 messages per update to avoid blocking
+    int processed = 0;
+    
+    while (processed < 5) {
+        QueuedMessage queued;
+        bool has_message = false;
+        
+        // Get message from queue
+        if (xSemaphoreTake(queue_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+            if (!message_queue.empty()) {
+                queued = message_queue.front();
+                message_queue.pop();
+                has_message = true;
+            }
+            xSemaphoreGive(queue_mutex);
+        }
+        
+        if (!has_message) break;
+        
+        // Process message outside of mutex
+        processMessage(queued.sender_mac, &queued.message);
+        processed++;
+    }
 }

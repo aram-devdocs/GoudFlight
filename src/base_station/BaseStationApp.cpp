@@ -3,8 +3,11 @@
 #include "../../lib/Core/Constants.h"
 #include "../../lib/Business/DataFormatter.h"
 #include "../../lib/SystemInfo/system_info.h"
+#include "../../lib/Config/espnow_config.h"
 
-BaseStationApp* BaseStationApp::instance = nullptr;
+// Global pointer for callbacks (necessary evil for C-style callbacks)
+// Protected by proper synchronization in the callbacks themselves
+static BaseStationApp* g_base_app_instance = nullptr;
 
 BaseStationApp::BaseStationApp()
     : AppFramework("BaseStation", HAL_BOARD_BASE_STATION)
@@ -20,7 +23,8 @@ BaseStationApp::BaseStationApp()
     , remote_button_states(0)
     , is_synced(false)
     , current_screen(nullptr) {
-    instance = this;
+    // Register this instance for callbacks
+    g_base_app_instance = this;
 }
 
 hal_status_t BaseStationApp::onInitialize() {
@@ -38,19 +42,10 @@ hal_status_t BaseStationApp::onInitialize() {
     if (status != HAL_OK) {
         LOG_WARNING("BaseStation", "ESP-NOW init failed, continuing without it");
     } else {
-        // Register simple callbacks for screen sync
-        espnow_manager->setScreenSyncCallback([](const ESPNowMessage* msg) {
-            if (instance) {
-                instance->handleScreenSync(msg->getScreenId());
-            }
-        });
-        
-        espnow_manager->setButtonDataCallback([](const ESPNowMessage* msg) {
-            if (instance && msg->type == ESPNowConfig::MSG_BUTTON_DATA) {
-                // data[0] contains the actual button states
-                instance->handleButtonData(msg->data[0]);
-            }
-        });
+        // Register callbacks using static functions (MISRA-C compliant)
+        espnow_manager->setScreenSyncCallback(&BaseStationApp::staticScreenSyncCallback);
+        espnow_manager->setButtonDataCallback(&BaseStationApp::staticButtonDataCallback);
+        LOG_INFO("BaseStation", "ESP-NOW callbacks registered");
     }
     
     status = initDisplay();
@@ -161,6 +156,9 @@ hal_status_t BaseStationApp::onUpdate(uint32_t delta_ms) {
 hal_status_t BaseStationApp::onShutdown() {
     LOG_INFO("BaseStation", "Shutting down");
     
+    // Clear global instance first
+    g_base_app_instance = nullptr;
+    
     if (startup_screen) {
         delete startup_screen;
         startup_screen = nullptr;
@@ -176,9 +174,14 @@ hal_status_t BaseStationApp::onShutdown() {
         espnow_screen = nullptr;
     }
     
-    // Cleanup removed - no more remote screens
-    
+    // Proper cleanup order to avoid use-after-free
     if (espnow_manager) {
+        // Clear callbacks first to prevent access during shutdown
+        espnow_manager->setScreenSyncCallback(nullptr);
+        espnow_manager->setButtonDataCallback(nullptr);
+        espnow_manager->setInputEventCallback(nullptr);
+        
+        // Then shutdown and delete
         espnow_manager->shutdown();
         delete espnow_manager;
         espnow_manager = nullptr;
@@ -284,15 +287,9 @@ void BaseStationApp::switchToScreen(AppScreen* screen) {
 }
 
 hal_status_t BaseStationApp::initESPNow() {
-    const char* handheld_mac_str = "30:ED:A0:A8:B5:70";
-    uint8_t handheld_mac[6];
-    
-    if (!ESPNowUtils::parseMacAddress(handheld_mac_str, handheld_mac)) {
-        LOG_ERROR("BaseStation", "Failed to parse handheld MAC address");
-        return HAL_ERROR;
-    }
-    
-    espnow_manager = new ESPNowManager(ESPNowConfig::ROLE_BASE_STATION, handheld_mac);
+    // Use MAC from config file
+    espnow_manager = new ESPNowManager(ESPNowConfig::ROLE_BASE_STATION, 
+                                        ESPNowGlobalConfig::HANDHELD_MAC);
     if (!espnow_manager) {
         LOG_ERROR("BaseStation", "Failed to create ESP-NOW manager");
         return HAL_ERROR;
@@ -420,4 +417,17 @@ void BaseStationApp::updateSyncDisplay() {
     }
     
     lcd_display->interface->refresh(lcd_display);
+}
+
+// Static callback functions that forward to instance methods
+void BaseStationApp::staticScreenSyncCallback(const ESPNowMessage* msg) {
+    if (g_base_app_instance && msg) {
+        g_base_app_instance->handleScreenSync(msg->getScreenId());
+    }
+}
+
+void BaseStationApp::staticButtonDataCallback(const ESPNowMessage* msg) {
+    if (g_base_app_instance && msg && msg->type == ESPNowConfig::MSG_BUTTON_DATA) {
+        g_base_app_instance->handleButtonData(msg->data[0]);
+    }
 }

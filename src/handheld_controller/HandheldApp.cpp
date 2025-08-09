@@ -4,6 +4,7 @@
 #include "../../lib/Business/DataFormatter.h"
 #include "../../lib/SystemInfo/system_info.h"
 #include "../../lib/HAL/Core/hal_errors.h"
+#include "../../lib/Config/espnow_config.h"
 
 HandheldApp::HandheldApp()
     : AppFramework("Handheld", HAL_BOARD_HANDHELD)
@@ -172,6 +173,19 @@ hal_status_t HandheldApp::onUpdate(uint32_t delta_ms) {
     }
     
     handleScreenInput();
+    
+    // Periodically check for screen sync (catches connection events)
+    if (current_screen) {
+        uint8_t screenType = 0; // NONE
+        if (current_screen == startup_screen) screenType = 1; // STARTUP
+        else if (current_screen == menu_screen) screenType = 2; // MENU
+        else if (current_screen == button_test_screen) screenType = 3; // BUTTON_TEST
+        else if (current_screen == flight_screen) screenType = 4; // FLIGHT_CONTROL
+        else if (current_screen == settings_screen) screenType = 5; // SETTINGS
+        else if (current_screen == espnow_screen) screenType = 6; // ESPNOW_STATUS
+        
+        sendScreenSync(screenType);  // Will only send if needed
+    }
     
     if (current_screen && current_screen->isActive()) {
         current_screen->onUpdate(delta_ms);
@@ -356,15 +370,9 @@ void HandheldApp::handleScreenInput() {
 }
 
 hal_status_t HandheldApp::initESPNow() {
-    const char* base_mac_str = "30:ED:A0:A8:A8:28";
-    uint8_t base_mac[6];
-    
-    if (!ESPNowUtils::parseMacAddress(base_mac_str, base_mac)) {
-        LOG_ERROR("Handheld", "Failed to parse base station MAC address");
-        return HAL_ERROR;
-    }
-    
-    espnow_manager = new ESPNowManager(ESPNowConfig::ROLE_HANDHELD, base_mac);
+    // Use MAC from config file
+    espnow_manager = new ESPNowManager(ESPNowConfig::ROLE_HANDHELD, 
+                                        ESPNowGlobalConfig::BASE_STATION_MAC);
     if (!espnow_manager) {
         LOG_ERROR("Handheld", "Failed to create ESP-NOW manager");
         return HAL_ERROR;
@@ -403,10 +411,20 @@ void HandheldApp::sendScreenSync(uint8_t screenType) {
     // Track last sent screen to avoid flooding
     static uint8_t last_sent_screen = 255; // Invalid initial value
     static uint32_t last_send_time = 0;
+    static bool first_sync_after_connect = false;
     uint32_t now = millis();
     
-    // Only send if screen changed or it's been more than 1 second (for reconnection)
-    if (screenType != last_sent_screen || (now - last_send_time) > 1000) {
+    // Check if we just connected
+    static bool was_paired = false;
+    bool is_paired = espnow_manager->isPaired();
+    if (!was_paired && is_paired) {
+        first_sync_after_connect = true;
+        LOG_INFO("Handheld", "Connection established, forcing screen sync");
+    }
+    was_paired = is_paired;
+    
+    // Only send if screen changed, it's been more than 1 second, or just connected
+    if (screenType != last_sent_screen || (now - last_send_time) > 1000 || first_sync_after_connect) {
         ESPNowMessage msg;
         msg.setScreenSync(screenType, ""); // Don't send name, just type
         espnow_manager->sendMessage(msg);
@@ -414,6 +432,7 @@ void HandheldApp::sendScreenSync(uint8_t screenType) {
         
         last_sent_screen = screenType;
         last_send_time = now;
+        first_sync_after_connect = false;
     }
 }
 

@@ -71,7 +71,9 @@ private:
     void handleScreenSync(uint8_t screenType);
     void handleButtonData(uint8_t buttonStates);
     
-    static BaseStationApp* instance;  // For static callbacks
+    // Static callbacks for ESP-NOW (MISRA-C compliant)
+    static void staticScreenSyncCallback(const ESPNowMessage* msg);
+    static void staticButtonDataCallback(const ESPNowMessage* msg);
 };
 
 #endif

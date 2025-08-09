@@ -1,0 +1,36 @@
+#ifndef ESPNOW_CONFIG_H_GLOBAL
+#define ESPNOW_CONFIG_H_GLOBAL
+
+#include <Arduino.h>
+
+namespace ESPNowGlobalConfig {
+    // MAC addresses for ESP-NOW pairing
+    // These should be configured per deployment
+    // Format: {0xXX, 0xXX, 0xXX, 0xXX, 0xXX, 0xXX}
+    
+    // Base station MAC address
+    static constexpr uint8_t BASE_STATION_MAC[6] = {0x30, 0xED, 0xA0, 0xA8, 0xA8, 0x28};
+    
+    // Handheld controller MAC address
+    static constexpr uint8_t HANDHELD_MAC[6] = {0x30, 0xED, 0xA0, 0xA8, 0xB5, 0x70};
+    
+    // Broadcast MAC for discovery
+    static constexpr uint8_t BROADCAST_MAC[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    
+    // Security settings
+    static constexpr bool ENABLE_ENCRYPTION = false;  // Set to true for production
+    static constexpr uint8_t PMK_KEY[16] = {0};  // Primary master key for encryption
+    static constexpr uint8_t LMK_KEY[16] = {0};  // Local master key for encryption
+    
+    // Connection settings
+    static constexpr uint32_t MAX_RETRY_COUNT = 5;
+    static constexpr uint32_t RETRY_DELAY_MS = 1000;
+    static constexpr uint32_t MESSAGE_QUEUE_SIZE = 32;
+    
+    // Validation settings
+    static constexpr bool ENABLE_CRC_CHECK = true;
+    static constexpr bool ENABLE_SEQUENCE_CHECK = true;
+    static constexpr uint32_t MAX_SEQUENCE_GAP = 100;
+}
+
+#endif
