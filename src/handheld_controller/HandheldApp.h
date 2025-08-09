@@ -16,6 +16,7 @@
 #include "screens/ESPNowScreen.h"
 #include "../../lib/Communication/ESPNow/ESPNowManager.h"
 #include "../../lib/Communication/ESPNow/ESPNowUtils.h"
+// Simple screen sync - no complex managers
 
 class HandheldApp : public AppFramework {
 public:
@@ -52,6 +53,9 @@ private:
     HandheldSettingsScreen* settings_screen;
     HandheldESPNowScreen* espnow_screen;
     ESPNowManager* espnow_manager;
+    // Simple sync
+    void sendScreenSync(uint8_t screenType);
+    void sendButtonData(uint8_t buttonStates);
     AppScreen* current_screen;
     
     handheld_hardware_t hardware;

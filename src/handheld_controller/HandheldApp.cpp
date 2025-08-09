@@ -196,6 +196,8 @@ hal_status_t HandheldApp::onShutdown() {
     delete settings_screen;
     delete espnow_screen;
     
+    // No managers to delete
+    
     if (espnow_manager) {
         espnow_manager->shutdown();
         delete espnow_manager;
@@ -308,6 +310,17 @@ void HandheldApp::switchToScreen(AppScreen* screen) {
     
     current_screen = screen;
     current_screen->onEnter();
+    
+    // Send simple screen sync
+    uint8_t screenType = 0; // NONE
+    if (screen == startup_screen) screenType = 1; // STARTUP
+    else if (screen == menu_screen) screenType = 2; // MENU
+    else if (screen == button_test_screen) screenType = 3; // BUTTON_TEST
+    else if (screen == flight_screen) screenType = 4; // FLIGHT_CONTROL
+    else if (screen == settings_screen) screenType = 5; // SETTINGS
+    else if (screen == espnow_screen) screenType = 6; // ESPNOW_STATUS
+    
+    sendScreenSync(screenType);
 }
 
 void HandheldApp::handleScreenInput() {
@@ -332,6 +345,11 @@ void HandheldApp::handleScreenInput() {
                 current_screen->onButtonRelease(i);
             }
         }
+    }
+    
+    // Send button states to base station if on button test screen
+    if (current_screen == button_test_screen && current_button_states != prev_button_states) {
+        sendButtonData(current_button_states);
     }
     
     prev_button_states = current_button_states;
@@ -377,4 +395,38 @@ hal_status_t HandheldApp::handleESPNowTest(uint32_t delta_ms) {
     }
     
     return HAL_OK;
+}
+
+void HandheldApp::sendScreenSync(uint8_t screenType) {
+    if (!espnow_manager || !espnow_manager->isPaired()) return;
+    
+    // Track last sent screen to avoid flooding
+    static uint8_t last_sent_screen = 255; // Invalid initial value
+    static uint32_t last_send_time = 0;
+    uint32_t now = millis();
+    
+    // Only send if screen changed or it's been more than 1 second (for reconnection)
+    if (screenType != last_sent_screen || (now - last_send_time) > 1000) {
+        ESPNowMessage msg;
+        msg.setScreenSync(screenType, ""); // Don't send name, just type
+        espnow_manager->sendMessage(msg);
+        LOG_INFO("Handheld", "Sent screen sync: %d", screenType);
+        
+        last_sent_screen = screenType;
+        last_send_time = now;
+    }
+}
+
+void HandheldApp::sendButtonData(uint8_t buttonStates) {
+    if (!espnow_manager || !espnow_manager->isPaired()) return;
+    
+    // Rate limit button updates to 20Hz max
+    static uint32_t last_button_send = 0;
+    uint32_t now = millis();
+    if (now - last_button_send < 50) return; // 50ms = 20Hz
+    
+    ESPNowMessage msg;
+    msg.setButtonData(buttonStates);
+    espnow_manager->sendMessage(msg);
+    last_button_send = now;
 }

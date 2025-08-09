@@ -21,7 +21,10 @@ namespace ESPNowConfig {
         MSG_PAIR_RESPONSE = 0x03,
         MSG_PING = 0x04,
         MSG_PONG = 0x05,
-        MSG_DISCONNECT = 0x06
+        MSG_DISCONNECT = 0x06,
+        MSG_SCREEN_SYNC = 0x07,
+        MSG_BUTTON_DATA = 0x08,
+        MSG_INPUT_EVENT = 0x09
     };
     
     enum DeviceRole : uint8_t {

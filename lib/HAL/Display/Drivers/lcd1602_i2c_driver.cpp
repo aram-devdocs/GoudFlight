@@ -59,9 +59,15 @@ static hal_status_t lcd1602_init(display_instance_t* const instance) {
     
     // Clear and reset
     data->lcd->clear();
+    delay(10);  // Give LCD time to process clear
     data->lcd->home();
     data->cursor_x = 0;
     data->cursor_y = 0;
+    
+    // Clear again to ensure display is clean
+    data->lcd->clear();
+    delay(10);
+    
     instance->initialized = true;
     
     return HAL_OK;

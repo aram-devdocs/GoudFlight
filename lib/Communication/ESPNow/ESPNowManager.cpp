@@ -13,7 +13,10 @@ ESPNowManager::ESPNowManager(ESPNowConfig::DeviceRole role, const uint8_t* peer_
     , connection_start_time(0)
     , peer_added(false)
     , is_initialized(false)
-    , auto_reconnect(role == ESPNowConfig::ROLE_BASE_STATION) {  // Only base station auto-reconnects
+    , auto_reconnect(role == ESPNowConfig::ROLE_BASE_STATION)  // Only base station auto-reconnects
+    , screen_sync_callback(nullptr)
+    , button_data_callback(nullptr)
+    , input_event_callback(nullptr) {
     
     memcpy(peer_mac_address, peer_mac, 6);
     memset(&stats, 0, sizeof(stats));
@@ -476,6 +479,24 @@ hal_status_t ESPNowManager::processMessage(const uint8_t* sender_mac, const ESPN
                 LOG_INFO("ESPNow", "Disconnect received from peer");
                 removePeer();
                 transitionToState(State::SEARCHING);
+            }
+            break;
+            
+        case ESPNowConfig::MSG_SCREEN_SYNC:
+            if (screen_sync_callback) {
+                screen_sync_callback(msg);
+            }
+            break;
+            
+        case ESPNowConfig::MSG_BUTTON_DATA:
+            if (button_data_callback) {
+                button_data_callback(msg);
+            }
+            break;
+            
+        case ESPNowConfig::MSG_INPUT_EVENT:
+            if (input_event_callback) {
+                input_event_callback(msg);
             }
             break;
             

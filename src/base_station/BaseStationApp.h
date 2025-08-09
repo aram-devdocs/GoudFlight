@@ -45,6 +45,11 @@ private:
     CounterScreen* counter_screen;
     BaseStationESPNowScreen* espnow_screen;
     ESPNowManager* espnow_manager;
+    
+    // Simple sync state
+    uint8_t remote_screen_type;
+    uint8_t remote_button_states;
+    bool is_synced;
     AppScreen* current_screen;
     
     hal_status_t initHardware();
@@ -59,8 +64,14 @@ private:
     hal_status_t handleErrorState(uint32_t delta_ms);
     
     hal_status_t initESPNow();
+    hal_status_t initScreens();
     
     void switchToScreen(AppScreen* screen);
+    void updateSyncDisplay();
+    void handleScreenSync(uint8_t screenType);
+    void handleButtonData(uint8_t buttonStates);
+    
+    static BaseStationApp* instance;  // For static callbacks
 };
 
 #endif

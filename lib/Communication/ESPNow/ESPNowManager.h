@@ -47,6 +47,7 @@ public:
     hal_status_t sendPong(uint32_t counter);
     hal_status_t sendDisconnect();
     hal_status_t disconnect();  // User-initiated disconnect
+    hal_status_t sendMessage(const ESPNowMessage& msg);  // Made public for sync managers
     
     State getState() const { return current_state; }
     const char* getStateString() const;
@@ -62,6 +63,12 @@ public:
     bool isConnected() const { return current_state == State::PAIRED; }
     bool isConnecting() const { return current_state == State::PAIRING || current_state == State::RECONNECTING; }
     float getPacketLossRate() const;
+    
+    // Message callbacks for sync managers
+    typedef void (*MessageCallback)(const ESPNowMessage* msg);
+    void setScreenSyncCallback(MessageCallback callback) { screen_sync_callback = callback; }
+    void setButtonDataCallback(MessageCallback callback) { button_data_callback = callback; }
+    void setInputEventCallback(MessageCallback callback) { input_event_callback = callback; }
     
     // Persistence methods
     bool loadSavedPeer();
@@ -90,6 +97,12 @@ private:
     bool auto_reconnect;
     
     Preferences preferences;
+    
+    // Message callbacks
+    MessageCallback screen_sync_callback;
+    MessageCallback button_data_callback;
+    MessageCallback input_event_callback;
+    
     static ESPNowManager* instance;
     static void onDataReceived(const uint8_t* mac_addr, const uint8_t* data, int len);
     static void onDataSent(const uint8_t* mac_addr, esp_now_send_status_t status);
@@ -102,7 +115,6 @@ private:
     hal_status_t handleError(uint32_t delta_ms);
     
     hal_status_t processMessage(const uint8_t* sender_mac, const ESPNowMessage* msg);
-    hal_status_t sendMessage(const ESPNowMessage& msg);
     hal_status_t sendAnnounce();
     hal_status_t sendPairRequest();
     hal_status_t sendPairResponse();
