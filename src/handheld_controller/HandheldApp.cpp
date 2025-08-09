@@ -4,6 +4,7 @@
 #include "../../lib/Business/DataFormatter.h"
 #include "../../lib/SystemInfo/system_info.h"
 #include "../../lib/HAL/Core/hal_errors.h"
+#include "../../lib/Config/espnow_config.h"
 
 HandheldApp::HandheldApp()
     : AppFramework("Handheld", HAL_BOARD_HANDHELD)
@@ -15,6 +16,8 @@ HandheldApp::HandheldApp()
     , menu_screen(nullptr)
     , flight_screen(nullptr)
     , settings_screen(nullptr)
+    , espnow_screen(nullptr)
+    , espnow_manager(nullptr)
     , current_screen(nullptr)
     , hardware({nullptr, nullptr}) {
 }
@@ -30,6 +33,12 @@ hal_status_t HandheldApp::onInitialize() {
     
     status = initInput();
     if (status != HAL_OK) return status;
+    
+    // Initialize ESP-NOW before screens so ESP-NOW screen can be created
+    status = initESPNow();
+    if (status != HAL_OK) {
+        LOG_WARNING("Handheld", "ESP-NOW init failed, continuing without it");
+    }
     
     status = initScreens();
     if (status != HAL_OK) return status;
@@ -88,6 +97,13 @@ hal_status_t HandheldApp::initScreens() {
     status = settings_screen->onInitialize();
     if (status != HAL_OK) return status;
     
+    if (espnow_manager) {
+        espnow_screen = new HandheldESPNowScreen(espnow_manager);
+        if (espnow_screen) {
+            espnow_screen->onInitialize();
+        }
+    }
+    
     LOG_INFO("Handheld", "Screens initialized");
     return HAL_OK;
 }
@@ -115,6 +131,9 @@ hal_status_t HandheldApp::initStates() {
     
     state_machine.registerState(AppState::STARTUP_SCREEN, "Startup",
         [this](uint32_t dt) { return handleStartupScreen(dt); });
+    
+    state_machine.registerState(AppState::ESPNOW_TEST, "ESPNow",
+        [this](uint32_t dt) { return handleESPNowTest(dt); });
     
     state_machine.registerState(AppState::BUTTON_TEST, "ButtonTest",
         [this](uint32_t dt) { return handleButtonTest(dt); });
@@ -145,18 +164,36 @@ hal_status_t HandheldApp::onUpdate(uint32_t delta_ms) {
         system_monitor->update(delta_ms);
     }
     
+    if (espnow_manager) {
+        espnow_manager->update(delta_ms);
+    }
+    
     if (input_handler) {
         input_handler->update(delta_ms);
     }
     
     handleScreenInput();
     
+    // Periodically check for screen sync (catches connection events)
+    if (current_screen) {
+        uint8_t screenType = 0; // NONE
+        if (current_screen == startup_screen) screenType = 1; // STARTUP
+        else if (current_screen == menu_screen) screenType = 2; // MENU
+        else if (current_screen == button_test_screen) screenType = 3; // BUTTON_TEST
+        else if (current_screen == flight_screen) screenType = 4; // FLIGHT_CONTROL
+        else if (current_screen == settings_screen) screenType = 5; // SETTINGS
+        else if (current_screen == espnow_screen) screenType = 6; // ESPNOW_STATUS
+        
+        sendScreenSync(screenType);  // Will only send if needed
+    }
+    
     if (current_screen && current_screen->isActive()) {
         current_screen->onUpdate(delta_ms);
         
-        if (current_screen->needsRedraw() && hardware.display && hardware.display->interface) {
+        if (current_screen->needsRedraw() && hardware.display) {
             current_screen->onDraw(hardware.display);
             current_screen->clearRedrawFlag();
+            // Note: For OLED, the display() call is done inside onDraw
         }
     }
     
@@ -171,6 +208,15 @@ hal_status_t HandheldApp::onShutdown() {
     delete menu_screen;
     delete flight_screen;
     delete settings_screen;
+    delete espnow_screen;
+    
+    // No managers to delete
+    
+    if (espnow_manager) {
+        espnow_manager->shutdown();
+        delete espnow_manager;
+    }
+    
     delete input_handler;
     delete system_monitor;
     
@@ -193,6 +239,7 @@ hal_status_t HandheldApp::handleStartupScreen(uint32_t delta_ms) {
     }
     
     if (startup_screen && startup_screen->isComplete()) {
+        LOG_INFO("Handheld", "Startup complete, transitioning to menu");
         return state_machine.transitionTo(AppState::MENU);
     }
     
@@ -222,9 +269,12 @@ hal_status_t HandheldApp::handleMenuState(uint32_t delta_ms) {
             case 0:
                 return state_machine.transitionTo(AppState::FLIGHT_CONTROL);
             case 1:
-                return state_machine.transitionTo(AppState::BUTTON_TEST);
+                return state_machine.transitionTo(AppState::ESPNOW_TEST);
             case 2:
+                return state_machine.transitionTo(AppState::BUTTON_TEST);
+            case 3:
                 return state_machine.transitionTo(AppState::SETTINGS);
+            // case 4 would be System Info - not implemented yet
         }
     }
     
@@ -274,6 +324,17 @@ void HandheldApp::switchToScreen(AppScreen* screen) {
     
     current_screen = screen;
     current_screen->onEnter();
+    
+    // Send simple screen sync
+    uint8_t screenType = 0; // NONE
+    if (screen == startup_screen) screenType = 1; // STARTUP
+    else if (screen == menu_screen) screenType = 2; // MENU
+    else if (screen == button_test_screen) screenType = 3; // BUTTON_TEST
+    else if (screen == flight_screen) screenType = 4; // FLIGHT_CONTROL
+    else if (screen == settings_screen) screenType = 5; // SETTINGS
+    else if (screen == espnow_screen) screenType = 6; // ESPNOW_STATUS
+    
+    sendScreenSync(screenType);
 }
 
 void HandheldApp::handleScreenInput() {
@@ -300,5 +361,91 @@ void HandheldApp::handleScreenInput() {
         }
     }
     
+    // Send button states to base station if on button test screen
+    if (current_screen == button_test_screen && current_button_states != prev_button_states) {
+        sendButtonData(current_button_states);
+    }
+    
     prev_button_states = current_button_states;
+}
+
+hal_status_t HandheldApp::initESPNow() {
+    // Use MAC from config file
+    espnow_manager = new ESPNowManager(ESPNowConfig::ROLE_HANDHELD, 
+                                        ESPNowGlobalConfig::BASE_STATION_MAC);
+    if (!espnow_manager) {
+        LOG_ERROR("Handheld", "Failed to create ESP-NOW manager");
+        return HAL_ERROR;
+    }
+    
+    hal_status_t status = espnow_manager->init();
+    if (status != HAL_OK) {
+        LOG_ERROR("Handheld", "Failed to initialize ESP-NOW");
+        delete espnow_manager;
+        espnow_manager = nullptr;
+        return status;
+    }
+    
+    LOG_INFO("Handheld", "ESP-NOW initialized");
+    return HAL_OK;
+}
+
+hal_status_t HandheldApp::handleESPNowTest(uint32_t delta_ms) {
+    if (espnow_screen && current_screen != espnow_screen) {
+        LOG_INFO("Handheld", "Switching to ESP-NOW screen");
+        switchToScreen(espnow_screen);
+    }
+    
+    // Button 7 is typically the back button
+    if (input_handler && input_handler->isPressed(7)) {
+        LOG_INFO("Handheld", "Returning to menu from ESP-NOW screen");
+        return state_machine.transitionTo(AppState::MENU);
+    }
+    
+    return HAL_OK;
+}
+
+void HandheldApp::sendScreenSync(uint8_t screenType) {
+    if (!espnow_manager || !espnow_manager->isPaired()) return;
+    
+    // Track last sent screen to avoid flooding
+    static uint8_t last_sent_screen = 255; // Invalid initial value
+    static uint32_t last_send_time = 0;
+    static bool first_sync_after_connect = false;
+    uint32_t now = millis();
+    
+    // Check if we just connected
+    static bool was_paired = false;
+    bool is_paired = espnow_manager->isPaired();
+    if (!was_paired && is_paired) {
+        first_sync_after_connect = true;
+        LOG_INFO("Handheld", "Connection established, forcing screen sync");
+    }
+    was_paired = is_paired;
+    
+    // Only send if screen changed, it's been more than 1 second, or just connected
+    if (screenType != last_sent_screen || (now - last_send_time) > 1000 || first_sync_after_connect) {
+        ESPNowMessage msg;
+        msg.setScreenSync(screenType, ""); // Don't send name, just type
+        espnow_manager->sendMessage(msg);
+        LOG_INFO("Handheld", "Sent screen sync: %d", screenType);
+        
+        last_sent_screen = screenType;
+        last_send_time = now;
+        first_sync_after_connect = false;
+    }
+}
+
+void HandheldApp::sendButtonData(uint8_t buttonStates) {
+    if (!espnow_manager || !espnow_manager->isPaired()) return;
+    
+    // Rate limit button updates to 20Hz max
+    static uint32_t last_button_send = 0;
+    uint32_t now = millis();
+    if (now - last_button_send < 50) return; // 50ms = 20Hz
+    
+    ESPNowMessage msg;
+    msg.setButtonData(buttonStates);
+    espnow_manager->sendMessage(msg);
+    last_button_send = now;
 }

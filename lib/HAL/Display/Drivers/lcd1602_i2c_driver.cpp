@@ -59,9 +59,15 @@ static hal_status_t lcd1602_init(display_instance_t* const instance) {
     
     // Clear and reset
     data->lcd->clear();
+    delay(10);  // Give LCD time to process clear
     data->lcd->home();
     data->cursor_x = 0;
     data->cursor_y = 0;
+    
+    // Clear again to ensure display is clean
+    data->lcd->clear();
+    delay(10);
+    
     instance->initialized = true;
     
     return HAL_OK;
@@ -271,8 +277,26 @@ static const display_interface_t g_lcd1602_interface = {
     .set_contrast = lcd1602_set_contrast
 };
 
-static lcd1602_driver_data_t g_lcd1602_driver_data = {0};
-static display_instance_t g_lcd1602_instance = {0};
+// Properly initialize all struct members to avoid warnings
+static lcd1602_driver_data_t g_lcd1602_driver_data = {
+    .lcd = nullptr,
+    .config = {
+        .i2c_address = 0,
+        .sda_pin = 0,
+        .scl_pin = 0,
+        .columns = 0,
+        .rows = 0
+    },
+    .cursor_x = 0,
+    .cursor_y = 0
+};
+
+static display_instance_t g_lcd1602_instance = {
+    .interface = nullptr,
+    .driver_data = nullptr,
+    .constraints = nullptr,
+    .initialized = false
+};
 
 static const hal_resource_constraints_t g_lcd1602_constraints = {
     .max_stack_bytes = 512,
