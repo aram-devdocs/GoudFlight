@@ -15,7 +15,7 @@ from state.types import CommandHistory
 class CommandPanel(BaseComponent):
     """Component for command input and history"""
     
-    def __init__(self, max_history: int = 10):
+    def __init__(self, max_history: int = 5):
         super().__init__(title="⌨ Command Interface", refresh_rate=1.0)
         self.max_history = max_history
         self.command_history: List[CommandHistory] = []
@@ -48,16 +48,38 @@ class CommandPanel(BaseComponent):
         """Render command panel"""
         elements = []
         
-        # Available commands section
-        cmd_table = Table(show_header=True, expand=True, box=None, padding=(0, 1))
-        cmd_table.add_column("Command", style="cyan", width=15)
-        cmd_table.add_column("Description", style="dim white")
+        # Get terminal dimensions to decide what to show
+        terminal_height = self.props.get("terminal_height", 24)
+        terminal_width = self.props.get("terminal_width", 80)
         
-        for cmd, desc in self.available_commands.items():
-            cmd_table.add_row(cmd, desc)
-        
-        elements.append(Text("Available Commands:", style="bold"))
-        elements.append(cmd_table)
+        # Show compact view for small terminals
+        if terminal_height < 30 or terminal_width < 80:
+            # Just show essential commands in a single line
+            cmd_text = Text()
+            cmd_text.append("Commands: ", style="bold")
+            cmd_text.append("PING ", style="cyan")
+            cmd_text.append("GET_TELEMETRY ", style="cyan")
+            cmd_text.append("GET_STATUS ", style="cyan")
+            cmd_text.append("RESET", style="cyan")
+            elements.append(cmd_text)
+        else:
+            # Show full command table
+            cmd_table = Table(show_header=False, expand=True, box=None, padding=(0, 1))
+            cmd_table.add_column("Command", style="cyan", width=12)
+            cmd_table.add_column("Description", style="dim white")
+            
+            # Show only most important commands
+            essential_cmds = {
+                "PING": "Heartbeat",
+                "GET_TELEMETRY": "Get data",
+                "GET_STATUS": "Status",
+                "RESET": "Reset ESP32"
+            }
+            
+            for cmd, desc in essential_cmds.items():
+                cmd_table.add_row(cmd, desc)
+            
+            elements.append(cmd_table)
         
         # Command history section
         if self.command_history:
@@ -85,15 +107,16 @@ class CommandPanel(BaseComponent):
             
             elements.append(history_table)
         
-        # Keyboard shortcuts hint
-        elements.append(Text(""))  # Spacing
-        shortcuts = Text("Shortcuts: ", style="dim white")
-        shortcuts.append("[Q]uit ", style="yellow")
-        shortcuts.append("[S]tatus ", style="yellow")
-        shortcuts.append("[T]elemetry ", style="yellow")
-        shortcuts.append("[R]eset ", style="yellow")
-        shortcuts.append("[C]lear Logs", style="yellow")
-        elements.append(shortcuts)
+        # Only show shortcuts on larger displays
+        if terminal_height >= 30:
+            elements.append(Text(""))  # Spacing
+            shortcuts = Text("Keys: ", style="dim white")
+            shortcuts.append("Q ", style="yellow")
+            shortcuts.append("S ", style="yellow")
+            shortcuts.append("T ", style="yellow")
+            shortcuts.append("R ", style="yellow")
+            shortcuts.append("C", style="yellow")
+            elements.append(shortcuts)
         
         return self.create_panel(Group(*elements))
     

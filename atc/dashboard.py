@@ -54,9 +54,9 @@ class Dashboard:
         """Create responsive dashboard layout based on terminal size"""
         layout = Layout(name="root")
         
-        # Responsive header/footer sizes
+        # Responsive header/footer sizes - ensure they fit
         header_size = 3 if self.terminal_height > 30 else 2
-        footer_size = 1
+        footer_size = 2  # Give footer more room to ensure it's visible
         
         # Split into header and body
         layout.split_column(
@@ -82,13 +82,19 @@ class Dashboard:
                     Layout(name="right", ratio=1)
                 )
                 
+                # Adjust command size based on available height
+                command_size = min(10, max(6, (self.terminal_height - header_size - footer_size) // 3))
+                
                 layout["left"].split_column(
                     Layout(name="logs", ratio=2),
-                    Layout(name="command", size=12)
+                    Layout(name="command", size=command_size)
                 )
                 
+                # Adjust status size based on available height
+                status_size = min(10, max(6, (self.terminal_height - header_size - footer_size) // 3))
+                
                 layout["right"].split_column(
-                    Layout(name="status", size=10),
+                    Layout(name="status", size=status_size),
                     Layout(name="telemetry")
                 )
         else:
@@ -106,7 +112,9 @@ class Dashboard:
             )
             
             # Split center column with responsive command size
-            command_size = min(15, max(8, self.terminal_height // 3))
+            # Account for header and footer when calculating sizes
+            available_height = self.terminal_height - header_size - footer_size - 2  # -2 for borders
+            command_size = min(12, max(6, available_height // 3))
             layout["center"].split_column(
                 Layout(name="logs", ratio=2),
                 Layout(name="command", size=command_size)
@@ -118,8 +126,10 @@ class Dashboard:
     
     def _init_components(self) -> None:
         """Initialize all dashboard components"""
-        # Calculate responsive sizes
-        log_lines = min(20, max(10, self.terminal_height - 20))  # Adjust based on height
+        # Calculate responsive sizes - be more conservative
+        # Account for header(3) + footer(2) + borders(2) + other components
+        available_height = self.terminal_height - 7
+        log_lines = min(15, max(5, available_height // 2))  # Use half of available height
         
         # Create component instances with terminal size info
         self.components = {
@@ -389,12 +399,14 @@ class Dashboard:
         self.start()
         
         try:
+            # Use vertical_overflow="crop" to prevent content from exceeding terminal height
             with Live(
                 self.layout,
                 console=self.console,
                 screen=True,
                 refresh_per_second=10,
-                transient=False
+                transient=False,
+                vertical_overflow="crop"  # Crop content that exceeds terminal height
             ) as live:
                 while self.running:
                     self._update_layout()
