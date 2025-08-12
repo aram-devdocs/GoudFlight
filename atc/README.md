@@ -46,10 +46,6 @@ pip install -r requirements.txt
 pip install -r requirements-dev.txt
 ```
 
-5. **Install pre-commit hooks** (recommended):
-```bash
-./install-hooks.sh
-```
 
 ## 🎮 Usage
 
@@ -115,39 +111,21 @@ atc/
 │   ├── state_manager.py
 │   ├── actions.py
 │   └── types.py
-├── validate.py            # Validation script
-├── test_run.py           # Test runner
-└── pre-push.sh           # Pre-push validation
+└── start.sh              # Startup script
 ```
 
 ## 🧪 Development
 
-### Validation
-Always validate before pushing code:
-```bash
-./pre-push.sh
-```
-
-### Run Tests
-```bash
-python3 validate.py      # Validate imports and initialization
-python3 test_run.py       # Test dashboard startup
-```
-
 ### Code Quality
-```bash
-make lint                 # Run linting
-make format              # Auto-format code
-make type-check          # Type checking
-make validate            # Run all checks
-```
+- Type hints throughout the codebase
+- Component-based architecture
+- Real-time monitoring capabilities
 
 ### Makefile Commands
 - `make install` - Install production dependencies
 - `make install-dev` - Install development dependencies
 - `make clean` - Remove cache files
 - `make run` - Run the application
-- `make all` - Full setup and validation
 
 ## 📡 Serial Communication
 
@@ -191,9 +169,9 @@ The dashboard communicates with the ESP32 base station via UART serial connectio
 - Ensure ESP32 is powered and connected
 
 ### Import Errors
-- Run `python3 validate.py` to check all imports
 - Ensure virtual environment is activated
 - Reinstall dependencies: `pip install -r requirements.txt`
+- Check Python version (3.9+ required)
 
 ## 📚 Documentation
 
@@ -204,11 +182,10 @@ The dashboard communicates with the ESP32 base station via UART serial connectio
 
 ## 🤝 Contributing
 
-1. Install pre-commit hooks: `./install-hooks.sh`
-2. Validate changes: `./pre-push.sh`
-3. Follow type hints - no `Any` types
-4. Add tests for new components
-5. Update documentation
+1. Follow type hints - no `Any` types
+2. Add documentation for new components
+3. Test changes with hardware
+4. Update documentation as needed
 
 ## 📄 License
 

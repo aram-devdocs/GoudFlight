@@ -196,6 +196,23 @@ hal_status_t SerialInterface::sendHeartbeat() {
     return sendJsonMessage(doc);
 }
 
+hal_status_t SerialInterface::sendButtonEvent(uint8_t buttonStates, uint32_t timestamp) {
+    StaticJsonDocument<256> doc;
+    doc["type"] = "BUTTON_EVENT";
+    doc["button_states"] = buttonStates;
+    
+    // Decode button states into readable format
+    JsonArray buttons = doc.createNestedArray("buttons");
+    for (int i = 0; i < 8; i++) {
+        buttons.add((buttonStates >> i) & 1);
+    }
+    
+    doc["timestamp"] = timestamp;
+    
+    LOG_INFO("SerialInterface", "Button event: states=0x%02X", buttonStates);
+    return sendJsonMessage(doc);
+}
+
 hal_status_t SerialInterface::sendJsonMessage(JsonDocument& doc) {
     size_t bytes_written = serializeJson(doc, *serial_port);
     serial_port->println();  // Add newline for message termination

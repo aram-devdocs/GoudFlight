@@ -13,7 +13,7 @@
 #include "screens/ESPNowScreen.h"
 #include "../../lib/Communication/ESPNow/ESPNowManager.h"
 #include "../../lib/Communication/ESPNow/ESPNowUtils.h"
-#include "SerialInterface.h"
+#include "../../lib/Communication/Serial/SerialInterface.h"
 
 class BaseStationApp : public AppFramework {
 public:

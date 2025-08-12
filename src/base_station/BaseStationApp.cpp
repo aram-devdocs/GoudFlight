@@ -385,7 +385,14 @@ void BaseStationApp::handleScreenSync(uint8_t screenType) {
 void BaseStationApp::handleButtonData(uint8_t buttonStates) {
     // Only update if button states actually changed
     if (remote_button_states != buttonStates) {
+        LOG_INFO("BaseStation", "Button state changed: 0x%02X -> 0x%02X", remote_button_states, buttonStates);
         remote_button_states = buttonStates;
+        
+        // Send button event to serial interface for monitoring
+        if (serial_interface) {
+            serial_interface->sendButtonEvent(buttonStates, millis());
+        }
+        
         // Only update display if we're showing button test
         if (remote_screen_type == 3) { // BUTTON_TEST = 3
             updateSyncDisplay();

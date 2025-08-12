@@ -9,10 +9,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `./upload.sh [handheld|drone|base]` - Upload to specific board
 
 ### ATC Dashboard (Python)
-- `cd atc && make validate` - Run all validation checks
-- `cd atc && ./pre-push.sh` - Run pre-push validation
-- `cd atc && python3 validate.py` - Validate imports and initialization
-- `cd atc && python3 test_run.py` - Test dashboard startup
+- `cd atc && python3 main.py` - Start the dashboard
+- `cd atc && ./start.sh` - Start with default settings
 
 
 
@@ -34,16 +32,14 @@ The ATC (Air Traffic Control) dashboard is a Python-based monitoring system for 
 - **MetricsPanel**: Performance metrics with sparkline visualizations
 
 ### Development Workflow
-1. **Always validate before pushing**: Run `./pre-push.sh`
-2. **Test dashboard startup**: Run `python3 test_run.py`
-3. **Check imports**: Run `python3 validate.py`
-4. **Install pre-commit hooks**: Run `./install-hooks.sh`
+1. **Start the dashboard**: Run `./start.sh` or `python3 main.py`
+2. **Monitor serial output**: Dashboard displays real-time telemetry
+3. **Send commands**: Use keyboard shortcuts to interact with ESP32
 
 ### Quality Assurance
-- Pre-commit hooks validate code before each commit
-- Validation script catches import and runtime errors
-- Test runner ensures dashboard starts properly
 - Type hints throughout for better IDE support
+- Component-based architecture for maintainability
+- Real-time monitoring and logging capabilities
 
 ## Design Principles & Architecture
 

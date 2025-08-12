@@ -3,8 +3,8 @@
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
-#include "../../lib/Core/Logger.h"
-#include "../../lib/HAL/Core/hal_types.h"
+#include "../../Core/Logger.h"
+#include "../../HAL/Core/hal_types.h"
 
 class SerialInterface {
 public:
@@ -27,6 +27,7 @@ public:
     hal_status_t sendEvent(const char* event, const char* data);
     hal_status_t sendError(const char* message);
     hal_status_t sendHeartbeat();
+    hal_status_t sendButtonEvent(uint8_t buttonStates, uint32_t timestamp);
     
     void setESPNowConnected(bool connected);
     void setRemoteDeviceCount(uint8_t count);
