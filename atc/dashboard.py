@@ -159,66 +159,47 @@ class Dashboard:
     
     def _create_header(self) -> Panel:
         """Create dashboard header"""
-        title = Text("🛸 BASE STATION MONITOR DASHBOARD", style="bold cyan")
-        subtitle = Text("Real-time ESP32 Monitoring & Control", style="dim white")
-        
-        header_content = Text.from_markup(
-            f"{title}\n{subtitle}",
-            justify="center"
-        )
+        # Create header text directly
+        header_lines = [
+            "🛸 BASE STATION MONITOR DASHBOARD",
+            "Real-time ESP32 Monitoring & Control"
+        ]
+        header_text = Text("\n".join(header_lines), justify="center", style="bold cyan")
         
         return Panel(
-            header_content,
+            header_text,
             style="bright_blue",
             border_style="blue"
         )
     
     def _create_footer(self) -> Panel:
         """Create responsive dashboard footer with help text"""
-        help_text = Text()
-        
+        # Build help text as a string first, then create Text object
         if self.keyboard_enabled:
             # Responsive help text based on terminal width
             if self.terminal_width < 60:
                 # Ultra compact
-                help_text.append("Q", style="bold yellow")
-                help_text.append(":Quit ", style="white")
-                help_text.append("Tab", style="bold yellow")
-                help_text.append(":Switch ", style="white")
-                help_text.append("↑↓", style="bold yellow")
-                help_text.append(":Scroll", style="white")
+                help_str = "Q:Quit Tab:Switch ↑↓:Scroll"
             elif self.terminal_width < 100:
                 # Compact
-                help_text.append("Q", style="bold yellow")
-                help_text.append(": Quit  ", style="white")
-                help_text.append("Tab", style="bold yellow")
-                help_text.append(": Focus  ", style="white")
-                help_text.append("↑↓", style="bold yellow")
-                help_text.append(": Scroll  ", style="white")
-                help_text.append("S/T/R", style="bold yellow")
-                help_text.append(": Cmds", style="white")
+                help_str = "Q: Quit | Tab: Focus | ↑↓: Scroll | S/T/R: Commands"
             else:
                 # Full
-                help_text.append("Tab", style="bold yellow")
-                help_text.append(": Focus  ", style="white")
-                help_text.append("↑↓", style="bold yellow")
-                help_text.append(": Scroll  ", style="white")
-                help_text.append("Q", style="bold yellow")
-                help_text.append(": Quit  ", style="white")
-                help_text.append("C", style="bold yellow")
-                help_text.append(": Clear  ", style="white")
-                help_text.append("S/T/R", style="bold yellow")
-                help_text.append(": Commands", style="white")
+                help_str = "Tab: Focus | ↑↓: Scroll | Q: Quit | C: Clear | S/T/R: Commands"
         else:
             if self.terminal_width < 60:
-                help_text.append("Ctrl+C to quit", style="yellow")
+                help_str = "Ctrl+C to quit"
             else:
-                help_text.append("Keyboard disabled. Press Ctrl+C to quit.", style="dim yellow")
+                help_str = "Keyboard disabled. Press Ctrl+C to quit."
+        
+        # Create Text object with the string
+        help_text = Text(help_str, style="bold white")
         
         return Panel(
             help_text,
-            style="bright_white on grey23",
-            border_style="bright_blue"
+            style="white on grey23",
+            border_style="bright_blue",
+            padding=(0, 1)
         )
     
     def _update_layout(self) -> None:
