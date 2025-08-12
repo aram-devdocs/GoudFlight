@@ -209,8 +209,11 @@ hal_status_t SerialInterface::sendJsonMessage(JsonDocument& doc) {
 }
 
 void SerialInterface::setESPNowConnected(bool connected) {
-    esp_now_connected = connected;
-    sendEvent("ESPNOW_STATUS", connected ? "CONNECTED" : "DISCONNECTED");
+    // Only send event if status has changed
+    if (esp_now_connected != connected) {
+        esp_now_connected = connected;
+        sendEvent("ESPNOW_STATUS", connected ? "CONNECTED" : "DISCONNECTED");
+    }
 }
 
 void SerialInterface::setRemoteDeviceCount(uint8_t count) {
