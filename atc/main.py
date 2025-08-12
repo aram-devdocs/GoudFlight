@@ -48,7 +48,8 @@ class BaseStationMonitor:
         
         # State management
         self.state_manager = StateManager()
-        self.dashboard = Dashboard(self.state_manager)
+        # Try to enable keyboard, but it's okay if it fails
+        self.dashboard = Dashboard(self.state_manager, keyboard_enabled=True)
         self.dashboard.set_command_callback(self.send_command)
         
         # Metrics tracking
@@ -253,29 +254,42 @@ class BaseStationMonitor:
     def heartbeat_thread(self):
         """Thread for sending periodic heartbeat/status requests"""
         self.logger.info("Heartbeat thread started")
+        telemetry_counter = 0
+        status_counter = 0
         
         while self.running:
-            # Send heartbeat every 5 seconds
-            self.send_command('PING')
-            
-            # Request telemetry every 2 seconds
-            time.sleep(2)
-            if self.running:
-                self.send_command('GET_TELEMETRY')
-            
-            # Check connection health
-            if self.last_heartbeat and (time.time() - self.last_heartbeat) > 10:
-                self.logger.warning("No heartbeat received for 10 seconds")
-                self.connection_status = "TIMEOUT"
-                self.state_manager.dispatch(Action(ActionType.HEARTBEAT_TIMEOUT))
-                self.state_manager.dispatch(
-                    log_message("WARNING", "No heartbeat received for 10 seconds", "Monitor")
-                )
-            
-            # Update metrics
-            self._update_metrics()
-            
-            time.sleep(3)
+            try:
+                # Send heartbeat every 5 seconds
+                if telemetry_counter % 5 == 0:
+                    self.send_command('PING', {})
+                
+                # Request telemetry every 2 seconds
+                if telemetry_counter % 2 == 0:
+                    self.send_command('GET_TELEMETRY', {})
+                
+                # Request status every 10 seconds  
+                if status_counter % 10 == 0:
+                    self.send_command('GET_STATUS', {})
+                
+                # Check connection health
+                if self.last_heartbeat and (time.time() - self.last_heartbeat) > 10:
+                    self.logger.warning("No heartbeat received for 10 seconds")
+                    self.connection_status = "TIMEOUT"
+                    self.state_manager.dispatch(Action(ActionType.HEARTBEAT_TIMEOUT))
+                    self.state_manager.dispatch(
+                        log_message("WARNING", "No heartbeat received for 10 seconds", "Monitor")
+                    )
+                
+                # Update metrics
+                self._update_metrics()
+                
+                telemetry_counter += 1
+                status_counter += 1
+                time.sleep(1)
+                
+            except Exception as e:
+                self.logger.error(f"Heartbeat thread error: {e}")
+                time.sleep(1)
         
         self.logger.info("Heartbeat thread stopped")
     
@@ -358,6 +372,8 @@ def main():
                        help='Baudrate (default: 115200)')
     parser.add_argument('-v', '--verbose', action='store_true',
                        help='Enable verbose logging')
+    parser.add_argument('--no-keyboard', action='store_true',
+                       help='Disable keyboard input (for non-TTY environments)')
     
     args = parser.parse_args()
     

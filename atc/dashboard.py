@@ -6,13 +6,16 @@ Implements a React-like component architecture with Rich terminal UI
 
 import threading
 import time
+import sys
+import select
+import termios
+import tty
 from typing import Dict, List, Optional, Callable
 from rich.console import Console
 from rich.layout import Layout
 from rich.live import Live
 from rich.panel import Panel
 from rich.text import Text
-from pynput import keyboard
 
 from components.base_component import BaseComponent
 from components.telemetry_panel import TelemetryPanel
@@ -27,15 +30,17 @@ from state.actions import Action, ActionType
 class Dashboard:
     """Main dashboard orchestrator"""
     
-    def __init__(self, state_manager: StateManager):
+    def __init__(self, state_manager: StateManager, keyboard_enabled: bool = True):
         self.state_manager = state_manager
         self.console = Console()
         self.layout = self._create_layout()
         self.components: Dict[str, BaseComponent] = {}
         self.running = False
         self.focused_component = "command"
-        self.keyboard_listener: Optional[keyboard.Listener] = None
+        self.keyboard_enabled = keyboard_enabled
+        self.keyboard_thread: Optional[threading.Thread] = None
         self.command_callback: Optional[Callable[[str, dict], None]] = None
+        self.old_settings = None
         
         # Initialize components
         self._init_components()
@@ -115,18 +120,20 @@ class Dashboard:
     def _create_footer(self) -> Panel:
         """Create dashboard footer with help text"""
         help_text = Text()
-        help_text.append("F1", style="bold yellow")
-        help_text.append(": Help  ", style="white")
-        help_text.append("Tab", style="bold yellow")
-        help_text.append(": Focus  ", style="white")
-        help_text.append("↑↓", style="bold yellow")
-        help_text.append(": Scroll  ", style="white")
-        help_text.append("Q", style="bold yellow")
-        help_text.append(": Quit  ", style="white")
-        help_text.append("C", style="bold yellow")
-        help_text.append(": Clear Logs  ", style="white")
-        help_text.append("R", style="bold yellow")
-        help_text.append(": Refresh", style="white")
+        
+        if self.keyboard_enabled:
+            help_text.append("Tab", style="bold yellow")
+            help_text.append(": Focus  ", style="white")
+            help_text.append("↑↓", style="bold yellow")
+            help_text.append(": Scroll  ", style="white")
+            help_text.append("Q", style="bold yellow")
+            help_text.append(": Quit  ", style="white")
+            help_text.append("C", style="bold yellow")
+            help_text.append(": Clear  ", style="white")
+            help_text.append("S/T/R", style="bold yellow")
+            help_text.append(": Commands", style="white")
+        else:
+            help_text.append("Keyboard disabled. Press Ctrl+C to quit.", style="dim yellow")
         
         return Panel(
             help_text,
@@ -149,93 +156,83 @@ class Dashboard:
         # Footer
         self.layout["footer"].update(self._create_footer())
     
-    def _on_key_press(self, key) -> None:
-        """Handle keyboard input"""
+    def _keyboard_handler(self) -> None:
+        """Handle keyboard input in a separate thread"""
         try:
-            if hasattr(key, 'char'):
-                char = key.char
-                if char:
-                    char_lower = char.lower()
-                    
-                    # Global commands
-                    if char_lower == 'q':
-                        self.stop()
-                    elif char_lower == 'c':
-                        # Clear logs
-                        self.state_manager.dispatch(Action(ActionType.LOG_CLEAR))
-                    elif char_lower == 's':
-                        # Send status command
-                        if self.command_callback:
-                            self.command_callback('GET_STATUS', {})
-                    elif char_lower == 't':
-                        # Send telemetry command
-                        if self.command_callback:
-                            self.command_callback('GET_TELEMETRY', {})
-                    elif char_lower == 'r':
-                        # Send reset command
-                        if self.command_callback:
-                            self.command_callback('RESET', {})
-            
-            # Special keys
-            elif key == keyboard.Key.tab:
-                # Cycle focus
-                components = list(self.components.keys())
-                current_idx = components.index(self.focused_component)
-                next_idx = (current_idx + 1) % len(components)
-                self.focused_component = components[next_idx]
+            while self.running:
+                # Check if input is available
+                if sys.stdin in select.select([sys.stdin], [], [], 0.1)[0]:
+                    char = sys.stdin.read(1)
+                    self._process_key(char)
+        except Exception as e:
+            from state.actions import log_message
+            self.state_manager.dispatch(
+                log_message("ERROR", f"Keyboard handler error: {e}", "Dashboard")
+            )
+    
+    def _process_key(self, char: str) -> None:
+        """Process a single key press"""
+        try:
+            if char:
+                char_lower = char.lower()
                 
-                # Update UI focus in state
-                self.state_manager.dispatch(
-                    Action(ActionType.UI_FOCUS_CHANGE, {"focus": self.focused_component})
-                )
-            
-            elif key == keyboard.Key.up:
-                # Scroll up in focused component
-                if self.focused_component == "logs":
-                    log_panel = self.components["logs"]
-                    if isinstance(log_panel, LogPanel):
-                        log_panel.scroll_up()
-            
-            elif key == keyboard.Key.down:
-                # Scroll down in focused component
-                if self.focused_component == "logs":
-                    log_panel = self.components["logs"]
-                    if isinstance(log_panel, LogPanel):
-                        log_panel.scroll_down()
-            
-            elif key == keyboard.Key.page_up:
-                # Page up in logs
-                if self.focused_component == "logs":
-                    log_panel = self.components["logs"]
-                    if isinstance(log_panel, LogPanel):
-                        log_panel.scroll_up(10)
-            
-            elif key == keyboard.Key.page_down:
-                # Page down in logs
-                if self.focused_component == "logs":
-                    log_panel = self.components["logs"]
-                    if isinstance(log_panel, LogPanel):
-                        log_panel.scroll_down(10)
-            
-            elif key == keyboard.Key.home:
-                # Go to top of logs
-                if self.focused_component == "logs":
-                    log_panel = self.components["logs"]
-                    if isinstance(log_panel, LogPanel):
-                        log_panel.scroll_to_top()
-            
-            elif key == keyboard.Key.end:
-                # Go to bottom of logs
-                if self.focused_component == "logs":
-                    log_panel = self.components["logs"]
-                    if isinstance(log_panel, LogPanel):
-                        log_panel.scroll_to_bottom()
-                        
+                # Global commands
+                if char_lower == 'q':
+                    self.stop()
+                elif char_lower == 'c':
+                    # Clear logs
+                    self.state_manager.dispatch(Action(ActionType.LOG_CLEAR))
+                elif char_lower == 's':
+                    # Send status command
+                    if self.command_callback:
+                        self.command_callback('GET_STATUS', {})
+                elif char_lower == 't':
+                    # Send telemetry command
+                    if self.command_callback:
+                        self.command_callback('GET_TELEMETRY', {})
+                elif char_lower == 'r':
+                    # Send reset command
+                    if self.command_callback:
+                        self.command_callback('RESET', {})
+                elif char == '\t':  # Tab key
+                    # Cycle focus
+                    components = list(self.components.keys())
+                    current_idx = components.index(self.focused_component)
+                    next_idx = (current_idx + 1) % len(components)
+                    self.focused_component = components[next_idx]
+                    
+                    # Update UI focus in state
+                    self.state_manager.dispatch(
+                        Action(ActionType.UI_FOCUS_CHANGE, {"focus": self.focused_component})
+                    )
+                elif char == '\x1b':  # ESC sequence (for arrow keys)
+                    # Read the rest of the escape sequence
+                    next1 = sys.stdin.read(1)
+                    next2 = sys.stdin.read(1)
+                    
+                    if next1 == '[' and self.focused_component == "logs":
+                        log_panel = self.components["logs"]
+                        if isinstance(log_panel, LogPanel):
+                            if next2 == 'A':  # Up arrow
+                                log_panel.scroll_up()
+                            elif next2 == 'B':  # Down arrow
+                                log_panel.scroll_down()
+                            elif next2 == '5':  # Page up
+                                sys.stdin.read(1)  # consume ~
+                                log_panel.scroll_up(10)
+                            elif next2 == '6':  # Page down
+                                sys.stdin.read(1)  # consume ~
+                                log_panel.scroll_down(10)
+                            elif next2 == 'H':  # Home
+                                log_panel.scroll_to_top()
+                            elif next2 == 'F':  # End
+                                log_panel.scroll_to_bottom()
+                                
         except Exception as e:
             # Log error but don't crash
             from state.actions import log_message
             self.state_manager.dispatch(
-                log_message("ERROR", f"Keyboard handler error: {e}", "Dashboard")
+                log_message("ERROR", f"Key processing error: {e}", "Dashboard")
             )
     
     def set_command_callback(self, callback: Callable[[str, dict], None]) -> None:
@@ -251,23 +248,40 @@ class Dashboard:
         """Start the dashboard"""
         self.running = True
         
-        # Start keyboard listener
-        self.keyboard_listener = keyboard.Listener(on_press=self._on_key_press)
-        self.keyboard_listener.start()
+        if self.keyboard_enabled:
+            # Try to set terminal to raw mode for keyboard input
+            try:
+                self.old_settings = termios.tcgetattr(sys.stdin)
+                tty.setcbreak(sys.stdin.fileno())
+                
+                # Start keyboard handler thread
+                self.keyboard_thread = threading.Thread(target=self._keyboard_handler, daemon=True)
+                self.keyboard_thread.start()
+            except Exception as e:
+                # If we can't set raw mode, disable keyboard
+                self.keyboard_enabled = False
+                from state.actions import log_message
+                self.state_manager.dispatch(
+                    log_message("WARNING", f"Keyboard input disabled: {e}", "Dashboard")
+                )
         
         # Log startup
         from state.actions import log_message
+        mode = "with keyboard" if self.keyboard_enabled else "without keyboard"
         self.state_manager.dispatch(
-            log_message("INFO", "Dashboard started", "Dashboard")
+            log_message("INFO", f"Dashboard started {mode}", "Dashboard")
         )
     
     def stop(self) -> None:
         """Stop the dashboard"""
         self.running = False
         
-        # Stop keyboard listener
-        if self.keyboard_listener:
-            self.keyboard_listener.stop()
+        # Restore terminal settings if we changed them
+        if self.keyboard_enabled and self.old_settings:
+            try:
+                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self.old_settings)
+            except:
+                pass
         
         # Unmount components
         for component in self.components.values():
