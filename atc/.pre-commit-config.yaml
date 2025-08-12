@@ -1,0 +1,34 @@
+repos:
+  - repo: local
+    hooks:
+      - id: validate
+        name: Validate Dashboard
+        entry: python3 validate.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        
+      - id: test-run
+        name: Test Dashboard Startup
+        entry: python3 test_run.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        
+      - id: no-cache-files
+        name: Check for cache files
+        entry: bash -c 'find . -name "__pycache__" -o -name "*.pyc" | grep -q . && echo "Cache files found! Run make clean" && exit 1 || exit 0'
+        language: system
+        pass_filenames: false
+        
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-ast  # Verify Python syntax
