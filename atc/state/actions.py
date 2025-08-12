@@ -84,6 +84,11 @@ def connection_lost(reason: str = None) -> Action:
     return Action(ActionType.CONNECTION_LOST, {'reason': reason})
 
 
+def connection_error(error_data: dict) -> Action:
+    """Create action for connection error"""
+    return Action(ActionType.CONNECTION_ERROR, error_data)
+
+
 def telemetry_update(data: TelemetryData) -> Action:
     """Create action for telemetry data update"""
     return Action(ActionType.TELEMETRY_UPDATE, data)
@@ -123,3 +128,8 @@ def command_sent(command: str, params: Optional[Dict[str, Union[str, int, float,
 def metrics_update(metrics: MetricsData) -> Action:
     """Create action for metrics update"""
     return Action(ActionType.METRICS_UPDATE, metrics)
+
+
+def heartbeat_received() -> Action:
+    """Create action for heartbeat received"""
+    return Action(ActionType.HEARTBEAT_RECEIVED)
