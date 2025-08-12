@@ -78,9 +78,31 @@ if [ ! -e "$SERIAL_PORT" ]; then
     echo "Warning: Serial port $SERIAL_PORT does not exist"
     echo ""
     echo "Available serial ports:"
+    
+    # Check for USB serial ports
     ls -la /dev/ttyUSB* 2>/dev/null || echo "  No /dev/ttyUSB* ports found"
     ls -la /dev/ttyACM* 2>/dev/null || echo "  No /dev/ttyACM* ports found"
     
+    # Check for Raspberry Pi UART ports
+    echo ""
+    echo "Raspberry Pi UART ports:"
+    ls -la /dev/ttyAMA* 2>/dev/null || echo "  No /dev/ttyAMA* ports found"
+    ls -la /dev/ttyS* 2>/dev/null || echo "  No /dev/ttyS* ports found"
+    ls -la /dev/serial* 2>/dev/null || echo "  No /dev/serial* ports found"
+    
+    # Check GPIO UART specifically for RPi5 on Ubuntu
+    echo ""
+    echo "GPIO UART (may need to be enabled):"
+    if [ -e "/dev/ttyAMA10" ]; then
+        echo "  /dev/ttyAMA10 - RPi5 GPIO UART (pins 8 & 10)"
+        ls -la /dev/ttyAMA10
+    fi
+    if [ -e "/dev/ttyAMA0" ]; then
+        echo "  /dev/ttyAMA0 - Classic RPi GPIO UART"
+        ls -la /dev/ttyAMA0
+    fi
+    
+    # macOS specific
     if [[ "$OSTYPE" == "darwin"* ]]; then
         ls -la /dev/tty.usb* 2>/dev/null || echo "  No /dev/tty.usb* ports found"
     fi
