@@ -130,9 +130,6 @@ class BaseStationMonitor:
     
     def process_received_data(self, data: str):
         """Process received JSON data from ESP32"""
-        # Debug: log all received data
-        self.logger.debug(f"Raw data received: {data}")
-        
         try:
             msg = json.loads(data)
             msg_type = msg.get('type', 'UNKNOWN')
@@ -160,9 +157,9 @@ class BaseStationMonitor:
         except json.JSONDecodeError as e:
             # Not JSON, might be plain text debug output
             if data.startswith('[') or data.startswith('DEBUG:') or data.startswith('INFO:'):
-                self.logger.info(f"ESP32 Log: {data}")
+                self.logger.debug(f"ESP32 Log: {data}")
             else:
-                self.logger.info(f"Non-JSON data: {data}")
+                self.logger.warning(f"Invalid JSON received: {data}")
     
     def update_telemetry(self, data: Dict[str, Any]):
         """Update telemetry data"""
