@@ -73,13 +73,14 @@ class LogPanel(BaseComponent):
         for _ in range(self.max_lines - len(visible_logs)):
             table.add_row("", "", "", "")
         
-        # Create panel with scroll indicator
-        panel_title = f"📋 System Logs [{len(visible_logs)}/{len(filtered_logs)}]"
+        # Update title with scroll indicator
         if len(filtered_logs) > self.max_lines:
             scroll_pct = int((self.scroll_offset / max(1, len(filtered_logs) - self.max_lines)) * 100)
-            panel_title += f" [{scroll_pct}%]"
+            self.title = f"📋 System Logs [{len(visible_logs)}/{len(filtered_logs)}] [{scroll_pct}%]"
+        else:
+            self.title = f"📋 System Logs [{len(visible_logs)}/{len(filtered_logs)}]"
         
-        return self.create_panel(table, title=panel_title)
+        return self.create_panel(table)
     
     def _filter_logs(self) -> List[LogEntry]:
         """Filter logs based on current filter level"""
