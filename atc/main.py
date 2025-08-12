@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Base Station Monitor - MVP Python application for monitoring ESP32 base station
-Communicates via UART over GPIO pins for circuit board integration
+Base Station Monitor - Advanced dashboard for monitoring ESP32 base station
+Features React-like component architecture with real-time updates
 """
 
 import serial
@@ -11,9 +11,20 @@ import threading
 import sys
 import argparse
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Optional
 from queue import Queue
 import logging
+
+# Import dashboard and state management
+from dashboard import Dashboard
+from state.state_manager import StateManager
+from state.actions import (
+    connection_established, connection_lost, connection_error,
+    telemetry_update, log_message, status_update,
+    heartbeat_received, command_sent, metrics_update,
+    Action, ActionType
+)
+from state.types import TelemetryData, MetricsData
 
 class BaseStationMonitor:
     """Main monitoring class for ESP32 base station communication"""
@@ -35,18 +46,18 @@ class BaseStationMonitor:
         )
         self.logger = logging.getLogger(__name__)
         
-        # Data storage for monitoring
-        self.telemetry_data = {
-            'timestamp': None,
-            'system_status': 'UNKNOWN',
-            'esp_now_connected': False,
-            'remote_devices': 0,
-            'signal_strength': 0,
-            'battery_voltage': 0.0,
-            'uptime_ms': 0,
-            'free_heap': 0,
-            'cpu_usage': 0.0
-        }
+        # State management
+        self.state_manager = StateManager()
+        self.dashboard = Dashboard(self.state_manager)
+        self.dashboard.set_command_callback(self.send_command)
+        
+        # Metrics tracking
+        self.rx_bytes = 0
+        self.tx_bytes = 0
+        self.rx_messages = 0
+        self.tx_messages = 0
+        self.error_count = 0
+        self.start_time = time.time()
     
     def connect(self) -> bool:
         """Establish serial connection with ESP32"""
@@ -62,11 +73,25 @@ class BaseStationMonitor:
             
             self.connection_status = "CONNECTED"
             self.logger.info(f"Connected to {self.port} at {self.baudrate} baud")
+            
+            # Update state
+            self.state_manager.dispatch(connection_established(self.port, self.baudrate))
+            self.state_manager.dispatch(
+                log_message("INFO", f"Connected to {self.port} at {self.baudrate} baud", "Serial")
+            )
             return True
             
         except serial.SerialException as e:
             self.logger.error(f"Failed to connect: {e}")
             self.connection_status = "ERROR"
+            
+            # Update state
+            self.state_manager.dispatch(
+                connection_error({"message": str(e)})
+            )
+            self.state_manager.dispatch(
+                log_message("ERROR", f"Failed to connect: {e}", "Serial")
+            )
             return False
     
     def disconnect(self):
@@ -75,8 +100,14 @@ class BaseStationMonitor:
             self.serial_conn.close()
             self.connection_status = "DISCONNECTED"
             self.logger.info("Disconnected from serial port")
+            
+            # Update state
+            self.state_manager.dispatch(connection_lost("User disconnected"))
+            self.state_manager.dispatch(
+                log_message("INFO", "Disconnected from serial port", "Serial")
+            )
     
-    def send_command(self, command: str, params: Dict[str, Any] = None) -> bool:
+    def send_command(self, command: str, params: dict) -> bool:
         """Send command to ESP32"""
         if not self.serial_conn or not self.serial_conn.is_open:
             self.logger.error("Serial connection not established")
@@ -94,10 +125,21 @@ class BaseStationMonitor:
             json_str = json.dumps(message) + '\n'
             self.serial_conn.write(json_str.encode('utf-8'))
             self.logger.debug(f"Sent: {command}")
+            
+            # Update metrics and state
+            self.tx_bytes += len(json_str)
+            self.tx_messages += 1
+            self.state_manager.dispatch(command_sent(command, params))
+            
             return True
             
         except serial.SerialException as e:
             self.logger.error(f"Failed to send command: {e}")
+            self.error_count += 1
+            
+            self.state_manager.dispatch(
+                log_message("ERROR", f"Failed to send command: {e}", "Serial")
+            )
             return False
     
     def rx_thread(self):
@@ -115,11 +157,22 @@ class BaseStationMonitor:
                     if line:
                         decoded = line.decode('utf-8').strip()
                         if decoded:
+                            # Update metrics
+                            self.rx_bytes += len(line)
+                            self.rx_messages += 1
                             self.process_received_data(decoded)
                             
             except serial.SerialException as e:
                 self.logger.error(f"RX error: {e}")
                 self.connection_status = "ERROR"
+                self.error_count += 1
+                
+                self.state_manager.dispatch(
+                    connection_error({"message": str(e)})
+                )
+                self.state_manager.dispatch(
+                    log_message("ERROR", f"RX error: {e}", "Serial")
+                )
                 
             except Exception as e:
                 self.logger.error(f"Unexpected RX error: {e}")
@@ -138,38 +191,64 @@ class BaseStationMonitor:
                 self.update_telemetry(msg.get('data', {}))
                 
             elif msg_type == 'STATUS':
-                self.telemetry_data['system_status'] = msg.get('status', 'UNKNOWN')
-                self.logger.info(f"System status: {self.telemetry_data['system_status']}")
+                status = msg.get('status', 'UNKNOWN')
+                self.state_manager.dispatch(status_update(status))
+                self.state_manager.dispatch(
+                    log_message("INFO", f"System status: {status}", "ESP32")
+                )
                 
             elif msg_type == 'HEARTBEAT':
                 self.last_heartbeat = time.time()
+                self.state_manager.dispatch(Action(ActionType.HEARTBEAT_RECEIVED))
                 self.logger.debug("Heartbeat received")
                 
             elif msg_type == 'EVENT':
-                self.logger.info(f"Event: {msg.get('event', 'UNKNOWN')} - {msg.get('data', {})}")
+                event_msg = f"Event: {msg.get('event', 'UNKNOWN')} - {msg.get('data', {})}"
+                self.state_manager.dispatch(
+                    log_message("INFO", event_msg, "ESP32")
+                )
                 
             elif msg_type == 'ERROR':
-                self.logger.error(f"ESP32 Error: {msg.get('message', 'Unknown error')}")
+                error_msg = msg.get('message', 'Unknown error')
+                self.state_manager.dispatch(
+                    log_message("ERROR", f"ESP32 Error: {error_msg}", "ESP32")
+                )
+                self.error_count += 1
                 
             else:
-                self.logger.debug(f"Received: {msg}")
+                self.state_manager.dispatch(
+                    log_message("DEBUG", f"Received: {msg}", "ESP32")
+                )
                 
         except json.JSONDecodeError as e:
             # Not JSON, might be plain text debug output
             if data.startswith('[') or data.startswith('DEBUG:') or data.startswith('INFO:'):
-                self.logger.debug(f"ESP32 Log: {data}")
+                self.state_manager.dispatch(
+                    log_message("DEBUG", data, "ESP32")
+                )
             else:
-                self.logger.warning(f"Invalid JSON received: {data}")
+                self.state_manager.dispatch(
+                    log_message("WARNING", f"Invalid JSON received: {data}", "Serial")
+                )
+                self.error_count += 1
     
-    def update_telemetry(self, data: Dict[str, Any]):
+    def update_telemetry(self, data: dict):
         """Update telemetry data"""
-        self.telemetry_data['timestamp'] = datetime.now().isoformat()
+        # Create typed telemetry data
+        telemetry = TelemetryData(
+            timestamp=datetime.now().isoformat(),
+            system_status=data.get('system_status', 'UNKNOWN'),
+            esp_now_connected=data.get('esp_now_connected', False),
+            remote_devices=data.get('remote_devices', 0),
+            signal_strength=data.get('signal_strength', 0),
+            battery_voltage=data.get('battery_voltage', 0.0),
+            uptime_ms=data.get('uptime_ms', 0),
+            free_heap=data.get('free_heap', 0),
+            cpu_usage=data.get('cpu_usage', 0.0)
+        )
         
-        for key, value in data.items():
-            if key in self.telemetry_data:
-                self.telemetry_data[key] = value
-        
-        self.logger.debug(f"Telemetry updated: {self.telemetry_data}")
+        self.state_manager.dispatch(telemetry_update(telemetry))
+        self.logger.debug(f"Telemetry updated: {telemetry}")
     
     def heartbeat_thread(self):
         """Thread for sending periodic heartbeat/status requests"""
@@ -188,33 +267,40 @@ class BaseStationMonitor:
             if self.last_heartbeat and (time.time() - self.last_heartbeat) > 10:
                 self.logger.warning("No heartbeat received for 10 seconds")
                 self.connection_status = "TIMEOUT"
+                self.state_manager.dispatch(Action(ActionType.HEARTBEAT_TIMEOUT))
+                self.state_manager.dispatch(
+                    log_message("WARNING", "No heartbeat received for 10 seconds", "Monitor")
+                )
+            
+            # Update metrics
+            self._update_metrics()
             
             time.sleep(3)
         
         self.logger.info("Heartbeat thread stopped")
     
-    def display_status(self):
-        """Display current status in terminal"""
-        print("\033[2J\033[H")  # Clear screen
-        print("=" * 60)
-        print("BASE STATION MONITOR - MVP")
-        print("=" * 60)
-        print(f"Connection: {self.connection_status}")
-        print(f"Port: {self.port} @ {self.baudrate} baud")
-        print("-" * 60)
-        print("TELEMETRY DATA:")
-        print(f"  Timestamp:        {self.telemetry_data['timestamp']}")
-        print(f"  System Status:    {self.telemetry_data['system_status']}")
-        print(f"  ESP-NOW:          {'Connected' if self.telemetry_data['esp_now_connected'] else 'Disconnected'}")
-        print(f"  Remote Devices:   {self.telemetry_data['remote_devices']}")
-        print(f"  Signal Strength:  {self.telemetry_data['signal_strength']} dBm")
-        print(f"  Battery:          {self.telemetry_data['battery_voltage']:.2f}V")
-        print(f"  Uptime:           {self.telemetry_data['uptime_ms'] / 1000:.1f}s")
-        print(f"  Free Heap:        {self.telemetry_data['free_heap']} bytes")
-        print(f"  CPU Usage:        {self.telemetry_data['cpu_usage']:.1f}%")
-        print("-" * 60)
-        print("Commands: (q)uit, (s)tatus, (t)elemetry, (r)eset")
-        print("=" * 60)
+    def _update_metrics(self):
+        """Update performance metrics"""
+        uptime = time.time() - self.start_time
+        
+        # Calculate message rate (messages per second)
+        message_rate = (self.rx_messages + self.tx_messages) / max(1, uptime)
+        
+        # Estimate latency (simplified - would need proper measurement)
+        latency = 5.0 if self.connection_status == "CONNECTED" else 0.0
+        
+        metrics = MetricsData(
+            rx_bytes=self.rx_bytes,
+            tx_bytes=self.tx_bytes,
+            rx_messages=self.rx_messages,
+            tx_messages=self.tx_messages,
+            error_count=self.error_count,
+            uptime_seconds=uptime,
+            message_rate=message_rate,
+            latency_ms=latency
+        )
+        
+        self.state_manager.dispatch(metrics_update(metrics))
     
     def start(self):
         """Start monitoring threads"""
@@ -236,40 +322,27 @@ class BaseStationMonitor:
         time.sleep(0.5)  # Give threads time to stop
         self.logger.info("Monitor stopped")
     
-    def run_interactive(self):
-        """Run interactive monitoring session"""
+    def run_dashboard(self):
+        """Run the modern dashboard interface"""
+        # Try to connect
         if not self.connect():
             self.logger.error("Failed to establish connection")
-            return
+            self.state_manager.dispatch(
+                log_message("ERROR", "Failed to establish initial connection. Dashboard will start anyway.", "Monitor")
+            )
         
+        # Start monitoring threads
         self.start()
         
         try:
-            while True:
-                self.display_status()
-                
-                # Non-blocking input check
-                try:
-                    cmd = input().strip().lower()
-                    
-                    if cmd == 'q':
-                        break
-                    elif cmd == 's':
-                        self.send_command('GET_STATUS')
-                    elif cmd == 't':
-                        self.send_command('GET_TELEMETRY')
-                    elif cmd == 'r':
-                        self.send_command('RESET')
-                    else:
-                        print(f"Unknown command: {cmd}")
-                        
-                except KeyboardInterrupt:
-                    break
-                
-                time.sleep(1)
-                
+            # Run the dashboard (blocking)
+            self.dashboard.run()
+            
         except Exception as e:
-            self.logger.error(f"Runtime error: {e}")
+            self.logger.error(f"Dashboard error: {e}")
+            self.state_manager.dispatch(
+                log_message("ERROR", f"Dashboard error: {e}", "Monitor")
+            )
             
         finally:
             self.stop()
@@ -294,7 +367,10 @@ def main():
     monitor = BaseStationMonitor(port=args.port, baudrate=args.baudrate)
     
     try:
-        monitor.run_interactive()
+        print("Starting Base Station Monitor Dashboard...")
+        print("Press 'Q' to quit, 'F1' for help")
+        time.sleep(1)  # Give user time to read
+        monitor.run_dashboard()
     except KeyboardInterrupt:
         print("\nShutting down...")
     except Exception as e:
