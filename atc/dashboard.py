@@ -192,14 +192,19 @@ class Dashboard:
             else:
                 help_str = "Keyboard disabled. Press Ctrl+C to quit."
         
-        # Create Text object with the string
-        help_text = Text(help_str, style="bold white")
+        # Create Text object with explicit content
+        help_text = Text(help_str, style="bold white", justify="center")
+        
+        # Ensure the text is not empty
+        if not help_text.plain:
+            help_text = Text("Q: Quit | Tab: Focus | ↑↓: Scroll", style="bold white", justify="center")
         
         return Panel(
             help_text,
             style="white on grey23",
             border_style="bright_blue",
-            padding=(0, 1)
+            padding=(0, 1),
+            expand=True  # Ensure panel expands to fill available width
         )
     
     def _update_layout(self) -> None:
