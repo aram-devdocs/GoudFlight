@@ -46,11 +46,31 @@ class LogPanel(BaseComponent):
             show_lines=False
         )
         
-        # Add columns
-        table.add_column("Time", style="dim cyan", width=12)
-        table.add_column("Level", width=8)
-        table.add_column("Message", ratio=1)
-        table.add_column("Source", style="dim white", width=15)
+        # Get terminal width from props
+        terminal_width = self.props.get("terminal_width", 80)
+        
+        # Responsive column configuration
+        show_source = terminal_width >= 100
+        show_milliseconds = terminal_width >= 80
+        
+        # Add columns with responsive widths
+        if terminal_width < 60:
+            # Ultra compact mode
+            table.add_column("T", style="dim cyan", width=8)
+            table.add_column("L", width=5)
+            table.add_column("Message", ratio=1)
+        elif terminal_width < 100:
+            # Compact mode
+            table.add_column("Time", style="dim cyan", width=8 if not show_milliseconds else 12)
+            table.add_column("Level", width=6)
+            table.add_column("Message", ratio=1)
+        else:
+            # Full mode
+            table.add_column("Time", style="dim cyan", width=12)
+            table.add_column("Level", width=8)
+            table.add_column("Message", ratio=1)
+            if show_source:
+                table.add_column("Source", style="dim white", width=12)
         
         # Filter logs if needed
         filtered_logs = self._filter_logs()
@@ -61,17 +81,43 @@ class LogPanel(BaseComponent):
         visible_logs = filtered_logs[start_idx:end_idx]
         
         # Add log entries to table
+        terminal_width = self.props.get("terminal_width", 80)
+        show_source = terminal_width >= 100
+        show_milliseconds = terminal_width >= 80
+        
         for log in visible_logs:
-            time_str = log["timestamp"].strftime("%H:%M:%S.%f")[:-3]
-            level_text = self._format_level(log["level"])
-            message = self._truncate_message(log["message"])
-            source = log.get("source", "-")
+            # Format time based on available space
+            if show_milliseconds:
+                time_str = log["timestamp"].strftime("%H:%M:%S.%f")[:-3]
+            else:
+                time_str = log["timestamp"].strftime("%H:%M:%S")
             
-            table.add_row(time_str, level_text, message, source)
+            # Format level based on available space
+            if terminal_width < 60:
+                level_text = self._format_level_compact(log["level"])
+            else:
+                level_text = self._format_level(log["level"])
+            
+            # Calculate available width for message
+            message_width = self._calculate_message_width(terminal_width, show_source)
+            message = self._truncate_message(log["message"], message_width)
+            
+            # Build row based on visible columns
+            if show_source:
+                source = log.get("source", "-")[:12]  # Limit source length
+                table.add_row(time_str, level_text, message, source)
+            else:
+                table.add_row(time_str, level_text, message)
         
         # Add empty rows if needed to maintain consistent height
+        terminal_width = self.props.get("terminal_width", 80)
+        show_source = terminal_width >= 100
+        
         for _ in range(self.max_lines - len(visible_logs)):
-            table.add_row("", "", "", "")
+            if show_source:
+                table.add_row("", "", "", "")
+            else:
+                table.add_row("", "", "")
         
         # Update title with scroll indicator
         if len(filtered_logs) > self.max_lines:
@@ -126,11 +172,61 @@ class LogPanel(BaseComponent):
         
         return Text(f"{symbol} {level_upper[:5]}", style=color)
     
-    def _truncate_message(self, message: str, max_length: int = 80) -> str:
-        """Truncate long messages"""
+    def _truncate_message(self, message: str, max_length: int = 0) -> str:
+        """Truncate long messages based on available space"""
+        # Use provided max_length or calculate based on terminal width
+        if max_length <= 0:
+            terminal_width = self.props.get("terminal_width", 80)
+            max_length = self._calculate_message_width(terminal_width, False)
+        
         if len(message) <= max_length:
             return message
         return message[:max_length - 3] + "..."
+    
+    def _calculate_message_width(self, terminal_width: int, show_source: bool) -> int:
+        """Calculate available width for message column"""
+        # Account for borders, padding, and other columns
+        # Time: 8-12 chars, Level: 5-8 chars, Source: 12 chars (if shown)
+        # Padding and borders: ~10 chars
+        
+        if terminal_width < 60:
+            # Ultra compact: T(8) + L(5) + padding(6) = 19
+            return max(20, terminal_width - 19)
+        elif terminal_width < 100:
+            # Compact: Time(8-12) + Level(6) + padding(8) = 22-26
+            return max(30, terminal_width - 26)
+        else:
+            # Full mode
+            if show_source:
+                # Time(12) + Level(8) + Source(12) + padding(10) = 42
+                return max(40, terminal_width - 42)
+            else:
+                # Time(12) + Level(8) + padding(8) = 28
+                return max(40, terminal_width - 28)
+    
+    def _format_level_compact(self, level: str) -> Text:
+        """Format log level in compact mode"""
+        level_upper = level.upper()
+        colors = {
+            "ERROR": "red bold",
+            "WARNING": "yellow",
+            "INFO": "blue",
+            "DEBUG": "dim white",
+            "MESSAGE": "white"
+        }
+        
+        symbols = {
+            "ERROR": "E",
+            "WARNING": "W",
+            "INFO": "I",
+            "DEBUG": "D",
+            "MESSAGE": "M"
+        }
+        
+        symbol = symbols.get(level_upper, "?")
+        color = colors.get(level_upper, "white")
+        
+        return Text(symbol, style=color)
     
     def scroll_up(self, lines: int = 1) -> None:
         """Scroll up by specified number of lines"""

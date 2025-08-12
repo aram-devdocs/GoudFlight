@@ -33,6 +33,7 @@ class Dashboard:
     def __init__(self, state_manager: StateManager, keyboard_enabled: bool = True):
         self.state_manager = state_manager
         self.console = Console()
+        self.terminal_width, self.terminal_height = self._get_terminal_size()
         self.layout = self._create_layout()
         self.components: Dict[str, BaseComponent] = {}
         self.running = False
@@ -45,50 +46,96 @@ class Dashboard:
         # Initialize components
         self._init_components()
         
+    def _get_terminal_size(self) -> tuple[int, int]:
+        """Get current terminal dimensions"""
+        return self.console.size
+        
     def _create_layout(self) -> Layout:
-        """Create the dashboard layout"""
+        """Create responsive dashboard layout based on terminal size"""
         layout = Layout(name="root")
+        
+        # Responsive header/footer sizes
+        header_size = 3 if self.terminal_height > 30 else 2
+        footer_size = 1
         
         # Split into header and body
         layout.split_column(
-            Layout(name="header", size=3),
+            Layout(name="header", size=header_size),
             Layout(name="body"),
-            Layout(name="footer", size=1)
+            Layout(name="footer", size=footer_size)
         )
         
-        # Split body into left and right columns
-        layout["body"].split_row(
-            Layout(name="left", ratio=1),
-            Layout(name="center", ratio=2),
-            Layout(name="right", ratio=1)
-        )
-        
-        # Split left column
-        layout["left"].split_column(
-            Layout(name="status", size=12),
-            Layout(name="metrics")
-        )
-        
-        # Split center column
-        layout["center"].split_column(
-            Layout(name="logs", ratio=2),
-            Layout(name="command", size=15)
-        )
-        
-        # Right column IS telemetry (no need for nested layout)
+        # Responsive column layout based on width
+        if self.terminal_width < 120:
+            # Narrow layout - prioritize center column
+            if self.terminal_width < 80:
+                # Ultra narrow - single column
+                layout["body"].split_column(
+                    Layout(name="logs", ratio=3),
+                    Layout(name="status", size=8),
+                    Layout(name="command", size=10)
+                )
+            else:
+                # Two column layout
+                layout["body"].split_row(
+                    Layout(name="left", ratio=2),
+                    Layout(name="right", ratio=1)
+                )
+                
+                layout["left"].split_column(
+                    Layout(name="logs", ratio=2),
+                    Layout(name="command", size=12)
+                )
+                
+                layout["right"].split_column(
+                    Layout(name="status", size=10),
+                    Layout(name="telemetry")
+                )
+        else:
+            # Wide layout - full three columns
+            layout["body"].split_row(
+                Layout(name="left", ratio=1),
+                Layout(name="center", ratio=2),
+                Layout(name="right", ratio=1)
+            )
+            
+            # Split left column
+            layout["left"].split_column(
+                Layout(name="status", size=12),
+                Layout(name="metrics")
+            )
+            
+            # Split center column with responsive command size
+            command_size = min(15, max(8, self.terminal_height // 3))
+            layout["center"].split_column(
+                Layout(name="logs", ratio=2),
+                Layout(name="command", size=command_size)
+            )
+            
+            # Right column IS telemetry
         
         return layout
     
     def _init_components(self) -> None:
         """Initialize all dashboard components"""
-        # Create component instances
+        # Calculate responsive sizes
+        log_lines = min(20, max(10, self.terminal_height - 20))  # Adjust based on height
+        
+        # Create component instances with terminal size info
         self.components = {
             "telemetry": TelemetryPanel(),
-            "logs": LogPanel(max_lines=20),
+            "logs": LogPanel(max_lines=log_lines),
             "status": StatusPanel(),
             "command": CommandPanel(),
             "metrics": MetricsPanel()
         }
+        
+        # Pass terminal dimensions to components
+        for component in self.components.values():
+            component.set_props({
+                "terminal_width": self.terminal_width,
+                "terminal_height": self.terminal_height
+            })
         
         # Mount all components
         for name, component in self.components.items():
@@ -117,40 +164,91 @@ class Dashboard:
         )
     
     def _create_footer(self) -> Panel:
-        """Create dashboard footer with help text"""
+        """Create responsive dashboard footer with help text"""
         help_text = Text()
         
         if self.keyboard_enabled:
-            help_text.append("Tab", style="bold yellow")
-            help_text.append(": Focus  ", style="white")
-            help_text.append("↑↓", style="bold yellow")
-            help_text.append(": Scroll  ", style="white")
-            help_text.append("Q", style="bold yellow")
-            help_text.append(": Quit  ", style="white")
-            help_text.append("C", style="bold yellow")
-            help_text.append(": Clear  ", style="white")
-            help_text.append("S/T/R", style="bold yellow")
-            help_text.append(": Commands", style="white")
+            # Responsive help text based on terminal width
+            if self.terminal_width < 60:
+                # Ultra compact
+                help_text.append("Q", style="bold yellow")
+                help_text.append(":Quit ", style="white")
+                help_text.append("Tab", style="bold yellow")
+                help_text.append(":Switch ", style="white")
+                help_text.append("↑↓", style="bold yellow")
+                help_text.append(":Scroll", style="white")
+            elif self.terminal_width < 100:
+                # Compact
+                help_text.append("Q", style="bold yellow")
+                help_text.append(": Quit  ", style="white")
+                help_text.append("Tab", style="bold yellow")
+                help_text.append(": Focus  ", style="white")
+                help_text.append("↑↓", style="bold yellow")
+                help_text.append(": Scroll  ", style="white")
+                help_text.append("S/T/R", style="bold yellow")
+                help_text.append(": Cmds", style="white")
+            else:
+                # Full
+                help_text.append("Tab", style="bold yellow")
+                help_text.append(": Focus  ", style="white")
+                help_text.append("↑↓", style="bold yellow")
+                help_text.append(": Scroll  ", style="white")
+                help_text.append("Q", style="bold yellow")
+                help_text.append(": Quit  ", style="white")
+                help_text.append("C", style="bold yellow")
+                help_text.append(": Clear  ", style="white")
+                help_text.append("S/T/R", style="bold yellow")
+                help_text.append(": Commands", style="white")
         else:
-            help_text.append("Keyboard disabled. Press Ctrl+C to quit.", style="dim yellow")
+            if self.terminal_width < 60:
+                help_text.append("Ctrl+C to quit", style="yellow")
+            else:
+                help_text.append("Keyboard disabled. Press Ctrl+C to quit.", style="dim yellow")
         
         return Panel(
             help_text,
-            style="dim white",
-            border_style="dim"
+            style="bright_white on grey23",
+            border_style="bright_blue"
         )
     
     def _update_layout(self) -> None:
         """Update layout with component renders"""
+        # Update terminal size and recreate layout if needed
+        new_width, new_height = self._get_terminal_size()
+        if new_width != self.terminal_width or new_height != self.terminal_height:
+            self.terminal_width = new_width
+            self.terminal_height = new_height
+            # Recreate layout for new size
+            self.layout = self._create_layout()
+            # Update all components with new size
+            for component in self.components.values():
+                component.set_props({
+                    "terminal_width": self.terminal_width,
+                    "terminal_height": self.terminal_height
+                })
+        
         # Header
         self.layout["header"].update(self._create_header())
         
-        # Components - use the proper layout paths
-        self.layout["body"]["right"].update(self.components["telemetry"].render())
-        self.layout["body"]["center"]["logs"].update(self.components["logs"].render())
-        self.layout["body"]["left"]["status"].update(self.components["status"].render())
-        self.layout["body"]["center"]["command"].update(self.components["command"].render())
-        self.layout["body"]["left"]["metrics"].update(self.components["metrics"].render())
+        # Components - use responsive layout paths
+        if self.terminal_width < 80:
+            # Ultra narrow - single column
+            self.layout["body"]["logs"].update(self.components["logs"].render())
+            self.layout["body"]["status"].update(self.components["status"].render())
+            self.layout["body"]["command"].update(self.components["command"].render())
+        elif self.terminal_width < 120:
+            # Two column layout
+            self.layout["body"]["left"]["logs"].update(self.components["logs"].render())
+            self.layout["body"]["left"]["command"].update(self.components["command"].render())
+            self.layout["body"]["right"]["status"].update(self.components["status"].render())
+            self.layout["body"]["right"]["telemetry"].update(self.components["telemetry"].render())
+        else:
+            # Full three column layout
+            self.layout["body"]["right"].update(self.components["telemetry"].render())
+            self.layout["body"]["center"]["logs"].update(self.components["logs"].render())
+            self.layout["body"]["left"]["status"].update(self.components["status"].render())
+            self.layout["body"]["center"]["command"].update(self.components["command"].render())
+            self.layout["body"]["left"]["metrics"].update(self.components["metrics"].render())
         
         # Footer
         self.layout["footer"].update(self._create_footer())
