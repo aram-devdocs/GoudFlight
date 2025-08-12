@@ -19,6 +19,7 @@ BaseStationApp::BaseStationApp()
     , counter_screen(nullptr)
     , espnow_screen(nullptr)
     , espnow_manager(nullptr)
+    , serial_interface(nullptr)
     , remote_screen_type(0)
     , remote_button_states(0)
     , is_synced(false)
@@ -56,6 +57,19 @@ hal_status_t BaseStationApp::onInitialize() {
     
     status = initStates();
     if (status != HAL_OK) return status;
+    
+    // Initialize serial interface for Python monitoring
+    serial_interface = new SerialInterface();
+    if (serial_interface) {
+        status = serial_interface->initialize();
+        if (status != HAL_OK) {
+            LOG_WARNING("BaseStation", "Serial interface init failed");
+            delete serial_interface;
+            serial_interface = nullptr;
+        } else {
+            LOG_INFO("BaseStation", "Serial interface initialized for monitoring");
+        }
+    }
     
     return state_machine.transitionTo(AppState::STARTUP_SCREEN);
 }
@@ -137,6 +151,17 @@ hal_status_t BaseStationApp::onUpdate(uint32_t delta_ms) {
     
     if (espnow_manager) {
         espnow_manager->update(delta_ms);
+        
+        // Update serial interface with ESP-NOW status
+        if (serial_interface) {
+            serial_interface->setESPNowConnected(espnow_manager->isConnected());
+            serial_interface->setRemoteDeviceCount(espnow_manager->isConnected() ? 1 : 0);
+            // Note: Add signal strength and battery voltage if available from Stats
+        }
+    }
+    
+    if (serial_interface) {
+        serial_interface->update();
     }
     
     if (current_screen && current_screen->isActive()) {
@@ -158,6 +183,12 @@ hal_status_t BaseStationApp::onShutdown() {
     
     // Clear global instance first
     g_base_app_instance = nullptr;
+    
+    if (serial_interface) {
+        serial_interface->shutdown();
+        delete serial_interface;
+        serial_interface = nullptr;
+    }
     
     if (startup_screen) {
         delete startup_screen;

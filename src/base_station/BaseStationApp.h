@@ -13,6 +13,7 @@
 #include "screens/ESPNowScreen.h"
 #include "../../lib/Communication/ESPNow/ESPNowManager.h"
 #include "../../lib/Communication/ESPNow/ESPNowUtils.h"
+#include "SerialInterface.h"
 
 class BaseStationApp : public AppFramework {
 public:
@@ -45,6 +46,7 @@ private:
     CounterScreen* counter_screen;
     BaseStationESPNowScreen* espnow_screen;
     ESPNowManager* espnow_manager;
+    SerialInterface* serial_interface;
     
     // Simple sync state
     uint8_t remote_screen_type;
