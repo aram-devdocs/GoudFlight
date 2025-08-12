@@ -8,8 +8,8 @@ from rich.console import RenderableType
 from rich.text import Text
 from datetime import datetime
 
-from .base_component import BaseComponent
-from ..state.types import TelemetryData
+from components.base_component import BaseComponent
+from state.types import TelemetryData
 
 
 class TelemetryPanel(BaseComponent):

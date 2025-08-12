@@ -10,8 +10,8 @@ from datetime import datetime
 from collections import defaultdict
 import copy
 
-from .types import AppState, StateValue, TelemetryData, ConnectionInfo, MetricsData, LogEntry, CommandHistory
-from .actions import Action, ActionType
+from state.types import AppState, StateValue, TelemetryData, ConnectionInfo, MetricsData, LogEntry, CommandHistory
+from state.actions import Action, ActionType
 
 
 class StateManager:

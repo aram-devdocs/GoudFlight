@@ -10,8 +10,8 @@ from rich.progress import Progress, BarColumn, TextColumn
 from datetime import datetime
 from typing import Optional
 
-from .base_component import BaseComponent
-from ..state.types import ConnectionInfo
+from components.base_component import BaseComponent
+from state.types import ConnectionInfo
 
 
 class StatusPanel(BaseComponent):

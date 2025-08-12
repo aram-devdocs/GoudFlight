@@ -7,7 +7,7 @@ Similar to Redux actions in React
 from enum import Enum
 from typing import Dict, Optional, Union
 from datetime import datetime
-from .types import ActionPayload, TelemetryData, MetricsData
+from state.types import ActionPayload, TelemetryData, MetricsData
 
 
 class ActionType(Enum):

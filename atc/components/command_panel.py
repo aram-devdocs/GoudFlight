@@ -8,8 +8,8 @@ from rich.table import Table
 from rich.text import Text
 from typing import List, Callable, Optional
 
-from .base_component import BaseComponent
-from ..state.types import CommandHistory
+from components.base_component import BaseComponent
+from state.types import CommandHistory
 
 
 class CommandPanel(BaseComponent):
@@ -104,5 +104,5 @@ class CommandPanel(BaseComponent):
             
             # Dispatch to state manager
             if self._state_manager:
-                from ..state.actions import command_sent
+                from state.actions import command_sent
                 self._state_manager.dispatch(command_sent(command, params))

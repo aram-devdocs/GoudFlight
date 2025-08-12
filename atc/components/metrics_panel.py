@@ -10,8 +10,8 @@ from rich.table import Table
 from typing import List, Deque
 from collections import deque
 
-from .base_component import BaseComponent
-from ..state.types import MetricsData
+from components.base_component import BaseComponent
+from state.types import MetricsData
 
 
 class MetricsPanel(BaseComponent):

@@ -8,8 +8,8 @@ from rich.console import RenderableType
 from rich.text import Text
 from typing import List, Optional
 
-from .base_component import BaseComponent
-from ..state.types import LogEntry
+from components.base_component import BaseComponent
+from state.types import LogEntry
 
 
 class LogPanel(BaseComponent):
@@ -174,5 +174,5 @@ class LogPanel(BaseComponent):
     def clear_logs(self) -> None:
         """Clear all logs"""
         if self._state_manager:
-            from ..state.actions import Action, ActionType
+            from state.actions import Action, ActionType
             self._state_manager.dispatch(Action(ActionType.LOG_CLEAR))
