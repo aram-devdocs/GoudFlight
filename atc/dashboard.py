@@ -75,8 +75,7 @@ class Dashboard:
             Layout(name="command", size=15)
         )
         
-        # Right column for telemetry
-        layout["right"].update(Layout(name="telemetry"))
+        # Right column IS telemetry (no need for nested layout)
         
         return layout
     
@@ -146,12 +145,12 @@ class Dashboard:
         # Header
         self.layout["header"].update(self._create_header())
         
-        # Components
-        self.layout["telemetry"].update(self.components["telemetry"].render())
-        self.layout["logs"].update(self.components["logs"].render())
-        self.layout["status"].update(self.components["status"].render())
-        self.layout["command"].update(self.components["command"].render())
-        self.layout["metrics"].update(self.components["metrics"].render())
+        # Components - use the proper layout paths
+        self.layout["body"]["right"].update(self.components["telemetry"].render())
+        self.layout["body"]["center"]["logs"].update(self.components["logs"].render())
+        self.layout["body"]["left"]["status"].update(self.components["status"].render())
+        self.layout["body"]["center"]["command"].update(self.components["command"].render())
+        self.layout["body"]["left"]["metrics"].update(self.components["metrics"].render())
         
         # Footer
         self.layout["footer"].update(self._create_footer())
