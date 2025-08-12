@@ -114,7 +114,7 @@ class Dashboard:
         return Panel(
             header_content,
             style="bright_blue",
-            box_style="blue"
+            border_style="blue"
         )
     
     def _create_footer(self) -> Panel:
@@ -138,7 +138,7 @@ class Dashboard:
         return Panel(
             help_text,
             style="dim white",
-            box_style="dim"
+            border_style="dim"
         )
     
     def _update_layout(self) -> None:
