@@ -4,10 +4,42 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build Commands
 
+### ESP32 Firmware
 - `./build.sh [handheld|drone|base|all]` - Build specific environment or all
 - `./upload.sh [handheld|drone|base]` - Upload to specific board
 
+### ATC Dashboard (Python)
+- `cd atc && python3 main.py` - Start the dashboard
+- `cd atc && ./start.sh` - Start with default settings
 
+
+
+## ATC Dashboard Architecture
+
+The ATC (Air Traffic Control) dashboard is a Python-based monitoring system for the ESP32 base station, featuring:
+
+### Component-Based Architecture
+- **React-like component system** with lifecycle methods and state management
+- **Independent refresh rates** for each UI component
+- **Type-safe implementation** with no `Any` types
+- **Redux-like state management** with actions, reducers, and subscriptions
+
+### Dashboard Components
+- **TelemetryPanel**: Real-time telemetry data with color-coded indicators
+- **LogPanel**: Scrollable log viewer with level-based filtering
+- **StatusPanel**: Connection status and heartbeat monitoring
+- **CommandPanel**: Command interface with history
+- **MetricsPanel**: Performance metrics with sparkline visualizations
+
+### Development Workflow
+1. **Start the dashboard**: Run `./start.sh` or `python3 main.py`
+2. **Monitor serial output**: Dashboard displays real-time telemetry
+3. **Send commands**: Use keyboard shortcuts to interact with ESP32
+
+### Quality Assurance
+- Type hints throughout for better IDE support
+- Component-based architecture for maintainability
+- Real-time monitoring and logging capabilities
 
 ## Design Principles & Architecture
 
@@ -96,6 +128,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **MISRA-C Compliance**: Follow MISRA-C guidelines for safety-critical code:
 - No dynamic memory after initialization
 - Restricted use of pointers
+
 - Explicit type conversions
 - Single exit point for functions
 
