@@ -384,7 +384,7 @@ def main():
     
     try:
         print("Starting Base Station Monitor Dashboard...")
-        print("Press 'Q' to quit, 'F1' for help")
+        print("Press 'Q' to quit, '0-6' to switch views")
         time.sleep(1)  # Give user time to read
         monitor.run_dashboard()
     except KeyboardInterrupt:

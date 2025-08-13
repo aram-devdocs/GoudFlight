@@ -48,6 +48,7 @@ class ActionType(Enum):
     UI_REFRESH = "UI_REFRESH"
     UI_RESIZE = "UI_RESIZE"
     UI_FOCUS_CHANGE = "UI_FOCUS_CHANGE"
+    VIEW_MODE_CHANGE = "VIEW_MODE_CHANGE"
 
 
 class Action:
@@ -133,3 +134,11 @@ def metrics_update(metrics: MetricsData) -> Action:
 def heartbeat_received() -> Action:
     """Create action for heartbeat received"""
     return Action(ActionType.HEARTBEAT_RECEIVED)
+
+
+def view_mode_change(mode: str, component: Optional[str] = None) -> Action:
+    """Create action for view mode change"""
+    return Action(
+        ActionType.VIEW_MODE_CHANGE,
+        {'mode': mode, 'component': component}
+    )

@@ -61,7 +61,9 @@ class StateManager:
                 latency_ms=0.0
             ),
             ui_focus="telemetry",
-            ui_dimensions={"width": 80, "height": 24}
+            ui_dimensions={"width": 80, "height": 24},
+            view_mode="dashboard",
+            view_component=None
         )
     
     def get_state(self) -> AppState:
@@ -185,6 +187,11 @@ class StateManager:
         elif action.type == ActionType.UI_FOCUS_CHANGE:
             if action.payload and "focus" in action.payload:
                 self._state["ui_focus"] = action.payload["focus"]
+        
+        elif action.type == ActionType.VIEW_MODE_CHANGE:
+            if action.payload:
+                self._state["view_mode"] = action.payload.get("mode", "dashboard")
+                self._state["view_component"] = action.payload.get("component", None)
         
         elif action.type == ActionType.UI_RESIZE:
             if action.payload:

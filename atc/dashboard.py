@@ -24,7 +24,7 @@ from components.status_panel import StatusPanel
 from components.command_panel import CommandPanel
 from components.metrics_panel import MetricsPanel
 from state.state_manager import StateManager
-from state.actions import Action, ActionType
+from state.actions import Action, ActionType, view_mode_change
 
 
 class Dashboard:
@@ -34,6 +34,12 @@ class Dashboard:
         self.state_manager = state_manager
         self.console = Console()
         self.terminal_width, self.terminal_height = self._get_terminal_size()
+        
+        # View mode management - initialize before creating layout
+        self.view_mode = "dashboard"  # "dashboard" or "fullscreen"
+        self.current_view_component = None  # which component is shown in fullscreen
+        self.view_cycle_index = 0  # for cycling through views
+        
         self.layout = self._create_layout()
         self.components: Dict[str, BaseComponent] = {}
         self.running = False
@@ -49,6 +55,25 @@ class Dashboard:
     def _get_terminal_size(self) -> tuple[int, int]:
         """Get current terminal dimensions"""
         return self.console.size
+    
+    def _set_view_mode(self, mode: str, component: Optional[str] = None) -> None:
+        """Set the view mode (dashboard or fullscreen)"""
+        self.view_mode = mode
+        self.current_view_component = component
+        
+        # Dispatch state change
+        self.state_manager.dispatch(view_mode_change(mode, component))
+        
+        # Force layout recreation
+        self.layout = self._create_layout()
+        
+        # Update components with new view mode
+        for comp_name, comp in self.components.items():
+            comp.set_props({
+                "terminal_width": self.terminal_width,
+                "terminal_height": self.terminal_height,
+                "fullscreen": comp_name == component if mode == "fullscreen" else False
+            })
         
     def _create_layout(self) -> Layout:
         """Create responsive dashboard layout based on terminal size"""
@@ -64,6 +89,12 @@ class Dashboard:
             Layout(name="body"),
             Layout(name="footer", size=footer_size)
         )
+        
+        # Handle fullscreen mode
+        if self.view_mode == "fullscreen" and self.current_view_component:
+            # In fullscreen mode, the body just contains the single component
+            # No further splitting needed
+            return layout
         
         # Responsive column layout based on width
         if self.terminal_width < 120:
@@ -160,8 +191,20 @@ class Dashboard:
     def _create_header(self) -> Panel:
         """Create dashboard header"""
         # Create header text directly
+        title = "🛸 BASE STATION MONITOR DASHBOARD"
+        if self.view_mode == "fullscreen" and self.current_view_component:
+            # Show which component is in fullscreen
+            component_names = {
+                "telemetry": "📡 Telemetry",
+                "status": "🔌 Status",
+                "logs": "📜 Logs",
+                "command": "⌨️ Commands",
+                "metrics": "📊 Metrics"
+            }
+            title = f"🛸 BASE STATION - {component_names.get(self.current_view_component, self.current_view_component.upper())}"
+        
         header_lines = [
-            "🛸 BASE STATION MONITOR DASHBOARD",
+            title,
             "Real-time ESP32 Monitoring & Control"
         ]
         header_text = Text("\n".join(header_lines), justify="center", style="bold cyan")
@@ -176,16 +219,21 @@ class Dashboard:
         """Create responsive dashboard footer with help text"""
         # Build help text as a string first, then create Text object
         if self.keyboard_enabled:
+            # Add view mode indicator
+            view_indicator = ""
+            if self.view_mode == "fullscreen" and self.current_view_component:
+                view_indicator = f"[View: {self.current_view_component.upper()}] | "
+            
             # Responsive help text based on terminal width
             if self.terminal_width < 60:
                 # Ultra compact
-                help_str = "Q:Quit Tab:Switch ↑↓:Scroll"
+                help_str = f"{view_indicator}0-6:Views Q:Quit"
             elif self.terminal_width < 100:
                 # Compact
-                help_str = "Q: Quit | Tab: Focus | ↑↓: Scroll | S/T/R: Commands"
+                help_str = f"{view_indicator}0-6: Views | Q: Quit | Tab: Focus | S/T/R: Cmds"
             else:
                 # Full
-                help_str = "Tab: Focus | ↑↓: Scroll | Q: Quit | C: Clear | S/T/R: Commands"
+                help_str = f"{view_indicator}0: Dashboard | 1-5: Panels | 6: Cycle | Tab: Focus | ↑↓: Scroll | Q: Quit | C: Clear | S/T/R: Commands"
         else:
             if self.terminal_width < 60:
                 help_str = "Ctrl+C to quit"
@@ -217,17 +265,22 @@ class Dashboard:
             # Recreate layout for new size
             self.layout = self._create_layout()
             # Update all components with new size
-            for component in self.components.values():
+            for comp_name, component in self.components.items():
                 component.set_props({
                     "terminal_width": self.terminal_width,
-                    "terminal_height": self.terminal_height
+                    "terminal_height": self.terminal_height,
+                    "fullscreen": comp_name == self.current_view_component if self.view_mode == "fullscreen" else False
                 })
         
         # Header
         self.layout["header"].update(self._create_header())
         
+        # Handle fullscreen mode
+        if self.view_mode == "fullscreen" and self.current_view_component:
+            if self.current_view_component in self.components:
+                self.layout["body"].update(self.components[self.current_view_component].render())
         # Components - use responsive layout paths
-        if self.terminal_width < 80:
+        elif self.terminal_width < 80:
             # Ultra narrow - single column
             self.layout["body"]["logs"].update(self.components["logs"].render())
             self.layout["body"]["status"].update(self.components["status"].render())
@@ -269,8 +322,34 @@ class Dashboard:
             if char:
                 char_lower = char.lower()
                 
+                # Number keys for view switching
+                if char.isdigit():
+                    digit = int(char)
+                    component_map = {
+                        1: "telemetry",
+                        2: "status",
+                        3: "logs",
+                        4: "command",
+                        5: "metrics"
+                    }
+                    
+                    if digit == 0:
+                        # Return to dashboard view
+                        self._set_view_mode("dashboard", None)
+                    elif digit in component_map:
+                        # Switch to specific component fullscreen
+                        self._set_view_mode("fullscreen", component_map[digit])
+                    elif digit == 6:
+                        # Cycle through views
+                        views = ["dashboard", "telemetry", "status", "logs", "command", "metrics"]
+                        self.view_cycle_index = (self.view_cycle_index + 1) % len(views)
+                        if self.view_cycle_index == 0:
+                            self._set_view_mode("dashboard", None)
+                        else:
+                            self._set_view_mode("fullscreen", views[self.view_cycle_index])
+                
                 # Global commands
-                if char_lower == 'q':
+                elif char_lower == 'q':
                     self.stop()
                 elif char_lower == 'c':
                     # Clear logs
