@@ -9,6 +9,7 @@ A modern, React-like terminal dashboard for monitoring and controlling the ESP32
 ## 🚀 Features
 
 - **Real-time Monitoring**: Live telemetry data from ESP32 base station
+- **View Switching**: Quickly switch between dashboard and fullscreen views using number keys
 - **Component-Based Architecture**: React-like components with independent refresh rates
 - **State Management**: Redux-like centralized state with actions and subscriptions
 - **Rich Terminal UI**: Professional dashboard with panels, tables, and visualizations
@@ -66,13 +67,26 @@ python3 main.py --port /dev/ttyUSB0 --baudrate 115200
 - `--no-keyboard`: Disable keyboard input (for non-TTY environments)
 
 ### Keyboard Controls
+
+#### View Navigation
+- `0` - Return to dashboard view (all panels)
+- `1` - Telemetry panel (fullscreen)
+- `2` - Status panel (fullscreen)
+- `3` - Logs panel (fullscreen)
+- `4` - Command panel (fullscreen)
+- `5` - Metrics panel (fullscreen)
+- `6` - Cycle through all views
+
+#### General Controls
 - `Q` - Quit application
-- `Tab` - Switch focus between panels
-- `↑/↓` - Scroll in log panel
+- `Tab` - Switch focus between panels (dashboard view)
+- `↑/↓` - Scroll in log panel (when focused)
+- `C` - Clear logs
+
+#### Quick Commands
 - `S` - Send status command
 - `T` - Send telemetry command
 - `R` - Send reset command
-- `C` - Clear logs
 
 ## 🏗️ Architecture
 

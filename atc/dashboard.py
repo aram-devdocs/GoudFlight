@@ -64,8 +64,8 @@ class Dashboard:
         # Dispatch state change
         self.state_manager.dispatch(view_mode_change(mode, component))
         
-        # Force layout recreation
-        self.layout = self._create_layout()
+        # Don't recreate layout while Live is running - just update the flag
+        # The _update_layout method will handle the rendering changes
         
         # Update components with new view mode
         for comp_name, comp in self.components.items():
@@ -90,10 +90,8 @@ class Dashboard:
             Layout(name="footer", size=footer_size)
         )
         
-        # Handle fullscreen mode
+        # If in fullscreen mode, don't split the body further
         if self.view_mode == "fullscreen" and self.current_view_component:
-            # In fullscreen mode, the body just contains the single component
-            # No further splitting needed
             return layout
         
         # Responsive column layout based on width
@@ -257,13 +255,12 @@ class Dashboard:
     
     def _update_layout(self) -> None:
         """Update layout with component renders"""
-        # Update terminal size and recreate layout if needed
+        # Update terminal size if needed
         new_width, new_height = self._get_terminal_size()
-        if new_width != self.terminal_width or new_height != self.terminal_height:
+        size_changed = new_width != self.terminal_width or new_height != self.terminal_height
+        if size_changed:
             self.terminal_width = new_width
             self.terminal_height = new_height
-            # Recreate layout for new size
-            self.layout = self._create_layout()
             # Update all components with new size
             for comp_name, component in self.components.items():
                 component.set_props({
@@ -272,12 +269,16 @@ class Dashboard:
                     "fullscreen": comp_name == self.current_view_component if self.view_mode == "fullscreen" else False
                 })
         
+        # Always recreate layout to handle view mode changes
+        self.layout = self._create_layout()
+        
         # Header
         self.layout["header"].update(self._create_header())
         
         # Handle fullscreen mode
         if self.view_mode == "fullscreen" and self.current_view_component:
             if self.current_view_component in self.components:
+                # For fullscreen, update the body directly with the component
                 self.layout["body"].update(self.components[self.current_view_component].render())
         # Components - use responsive layout paths
         elif self.terminal_width < 80:
@@ -475,6 +476,7 @@ class Dashboard:
             ) as live:
                 while self.running:
                     self._update_layout()
+                    live.update(self.layout)  # Explicitly update with the new layout
                     time.sleep(0.1)  # Small delay to prevent CPU hogging
                     
         except KeyboardInterrupt:
